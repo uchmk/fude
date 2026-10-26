@@ -223,7 +223,7 @@ fn pieces(chars: &[char], preedit: bool, has: &impl Fn(char) -> bool) -> Vec<(Pi
 fn column(painter: &Painter, f: &Faces, pieces: &[(Piece, bool)], at: Pos2, end: f32, up: bool) {
     let c = ito_theme::colors();
     let fs = f.letter.size;
-    let mid = middle(painter, f);
+    let mid = middle(painter, &f.letter);
     let order: Vec<&(Piece, bool)> = if up { pieces.iter().rev().collect() } else { pieces.iter().collect() };
     let mut y = at.y;
     for (piece, preedit) in order {
@@ -262,8 +262,8 @@ fn column(painter: &Painter, f: &Faces, pieces: &[(Piece, bool)], at: Pos2, end:
 /// How far down from the top of a laid out letter the middle of an ideograph
 /// falls. A Mincho line is taller than its size and more of it is above the
 /// letters, so its box's own middle would set them too high.
-fn middle(painter: &Painter, f: &Faces) -> f32 {
-    let g = painter.layout_no_wrap("国".into(), f.letter.clone(), f.ink);
+pub fn middle(painter: &Painter, font: &FontId) -> f32 {
+    let g = painter.layout_no_wrap("国".into(), font.clone(), Color32::WHITE);
     let row = &g.rows[0];
     match row.glyphs.first() {
         Some(gl) if !gl.uv_rect.is_nothing() => row.pos.y + gl.pos.y + gl.uv_rect.offset.y + gl.uv_rect.size.y / 2.0,
@@ -433,6 +433,20 @@ fn bars(ui: &egui::Ui, painter: &Painter, rect: Rect, v: &View) {
     }
 }
 
+/// What was reached, as the banners say it: "400 字に達しました・15 分たちました".
+pub fn hit_words(b: &Band, t: &ito_i18n::Table) -> String {
+    let mins = (b.time_cap().as_secs_f64() / 60.0).round().to_string();
+    let words: Vec<String> = b
+        .hit()
+        .iter()
+        .map(|h| match h {
+            Hit::Chars => t.trf("write.hit_chars", &[&b.char_cap().to_string()]),
+            Hit::Time => t.trf("write.hit_time", &[&mins]),
+        })
+        .collect();
+    words.join(t.tr("write.hit_join"))
+}
+
 /// The band that slides down from the top when a limit is reached. The
 /// writing goes on under it.
 fn banner(ui: &egui::Ui, rect: Rect, v: &View) {
@@ -440,22 +454,12 @@ fn banner(ui: &egui::Ui, rect: Rect, v: &View) {
     let c = ito_theme::colors();
     let t = v.table;
     let tr = |k: &'static str| t.tr(k).to_owned();
-    let trf = |k: &'static str, a: &[&str]| t.trf(k, a);
     let b = v.band;
     let id = egui::Id::new("fude-limit-band");
     let on = !b.hit().is_empty();
     // The words stay while it slides away.
     let words = if on {
-        let mins = (b.time_cap().as_secs_f64() / 60.0).round().to_string();
-        let words: Vec<String> = b
-            .hit()
-            .iter()
-            .map(|h| match h {
-                Hit::Chars => trf("write.hit_chars", &[&b.char_cap().to_string()]),
-                Hit::Time => trf("write.hit_time", &[&mins]),
-            })
-            .collect();
-        let words = words.join(&tr("write.hit_join"));
+        let words = hit_words(b, t);
         ctx.data_mut(|d| d.insert_temp(id.with("words"), words.clone()));
         words
     } else {

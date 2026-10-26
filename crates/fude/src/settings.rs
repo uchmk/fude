@@ -1,28 +1,30 @@
 //! The settings screen (Ctrl+,): `ito-prefs` draws the nav and the cards,
 //! and the rows common to every uchmk app (the language, the scale, the
 //! theme) write common.toml. The Writing page is fude's own, written to
-//! config.toml: the limits, the clock and the band, in force at once.
-//! fude's keys are on the Keys page, written to keymap.toml. The clean
-//! copy's paper comes with the clean copy.
+//! config.toml: the limits, the clock and the band, in force at once. So is
+//! the Clean copy page: the paper the clean copy opens on, the grid and how
+//! a line of it is filled. fude's keys are on the Keys page, written to
+//! keymap.toml.
 
 use egui::{vec2, FontId, Sense, Stroke, StrokeKind, Ui};
 use ito_common::{themes_dir, CommonChange};
 use ito_i18n::Table;
 use ito_prefs::{keyed_row, section, sep, Drafts, KeyWords, Look, MoreWords, Page, Words};
 
-use crate::config::{self, Config, Dir, OnContinue, Point, Show, TimeStart};
+use crate::config::{self, Config, Dir, Hang, OnContinue, Paper, Point, Rule, Show, TimeStart};
 use crate::keymap::Keymap;
-use crate::{App, Screen};
+use crate::App;
 
 pub const GENERAL: usize = 0;
 pub const THEME: usize = 1;
 pub const WRITE: usize = 2;
-pub const KEYS: usize = 3;
-pub const ADVANCED: usize = 4;
-pub const ABOUT: usize = 5;
+pub const CLEAN: usize = 3;
+pub const KEYS: usize = 4;
+pub const ADVANCED: usize = 5;
+pub const ABOUT: usize = 6;
 
 /// The pages fude has besides General and About, which every app has.
-/// `App` is the Writing page.
+/// `App` is the Writing page and the Clean copy page.
 const HAS: [Page; 4] = [Page::Theme, Page::App, Page::Keys, Page::Advanced];
 
 /// The Writing page's keys in config.toml, which the search finds too.
@@ -38,7 +40,11 @@ const WRITE_KEYS: [&str; 9] = [
     "write.font_size",
 ];
 
-/// What the Writing page asks for: `table.key` in config.toml, and its value.
+/// The Clean copy page's keys in config.toml.
+const CLEAN_KEYS: [&str; 9] =
+    ["note.paper", "note.dir", "note.rule", "note.cols", "note.rows", "note.indent", "note.hang", "note.merge", "note.wrap"];
+
+/// What a page of fude's asks for: `table.key` in config.toml, and its value.
 type ConfigChange = (&'static str, toml::Value);
 
 /// Stands for "your own" among a limit's presets.
@@ -74,9 +80,21 @@ fn index<'a>(w: &'static Words, more: &'static MoreWords, kw: &'static KeyWords,
         (WRITE, tr("settings.point")),
         (WRITE, tr("settings.dir")),
         (WRITE, tr("settings.font_size")),
+        (CLEAN, tr("settings.opened")),
+        (CLEAN, tr("settings.paper")),
+        (CLEAN, tr("settings.paper_dir")),
+        (CLEAN, tr("settings.rule")),
+        (CLEAN, tr("settings.genko")),
+        (CLEAN, tr("settings.grid")),
+        (CLEAN, tr("settings.indent")),
+        (CLEAN, tr("settings.hang")),
+        (CLEAN, tr("settings.merge")),
+        (CLEAN, tr("settings.sheet")),
+        (CLEAN, tr("settings.wrap")),
     ]
     .into_iter()
     .chain(WRITE_KEYS.map(|k| (WRITE, k)))
+    .chain(CLEAN_KEYS.map(|k| (CLEAN, k)))
     .chain(ito_prefs::keys_index(kw).into_iter().map(|t| (KEYS, t)))
     .chain(ito_prefs::advanced_index(more).into_iter().map(|t| (ADVANCED, t)))
     .chain(ito_prefs::about_index(more, w).into_iter().map(|t| (ABOUT, t)))
@@ -95,7 +113,10 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     let tr = |k: &'static str| t.tr(k);
     let pages: Vec<_> = ito_prefs::default_order(&HAS)
         .into_iter()
-        .map(|p| if p == Page::App { (tr("settings.write"), tr("settings.write_lead")) } else { p.words(more) })
+        .flat_map(|p| match p {
+            Page::App => vec![(tr("settings.write"), tr("settings.write_lead")), (tr("settings.clean"), tr("settings.clean_lead"))],
+            _ => vec![p.words(more)],
+        })
         .collect();
     let index = index(w, more, kw, t);
     let nav = ito_prefs::Nav { pages: &pages, index: &index, words: w, file: "common.toml" };
@@ -118,6 +139,7 @@ pub fn show(ui: &mut Ui, app: &mut App) {
             asked.extend(ito_prefs::scale_row(ui, l, w, common.scale_or_one(), ""));
         }),
         WRITE => config_asked = write_page(ui, l, t, config, drafts),
+        CLEAN => config_asked = clean_page(ui, l, t, config),
         THEME => {
             let (choice, dark, light) = common.theme_choice(None);
             let note = match base {
@@ -177,7 +199,7 @@ pub fn show(ui: &mut Ui, app: &mut App) {
         }
     }
     if out.close {
-        app.screen = Screen::Write;
+        app.screen = app.back;
     }
     if out.open_file {
         app.prefs.open_common(&no_folder);
@@ -284,6 +306,86 @@ fn write_page(ui: &mut Ui, l: Look, t: &Table, c: Config, drafts: &mut Drafts) -
     asked
 }
 
+/// The Clean copy page: the paper it opens on, the grid, and the sheets
+/// that are not a grid. What it asks for goes into config.toml.
+fn clean_page(ui: &mut Ui, l: Look, t: &Table, c: Config) -> Vec<ConfigChange> {
+    let tr = |k: &'static str| t.tr(k);
+    let word = |w: &str| toml::Value::String(w.into());
+    let mut asked: Vec<ConfigChange> = Vec::new();
+    section(ui, l, tr("settings.opened"), |ui| {
+        let papers = [
+            (Paper::Auto, tr("settings.paper_auto")),
+            (Paper::Genko, tr("settings.paper_genko")),
+            (Paper::Ruled, tr("settings.paper_ruled")),
+            (Paper::Graph, tr("settings.paper_graph")),
+            (Paper::Plain, tr("settings.paper_plain")),
+        ];
+        if let Some(v) = pick(ui, l, "note.paper", (tr("settings.paper"), tr("settings.paper_note")), c.paper, &papers) {
+            asked.push(("note.paper", word(v.word())));
+        }
+        sep(ui, l);
+        let dirs = [(Dir::Vertical, tr("settings.paper_vertical")), (Dir::Horizontal, tr("settings.paper_horizontal"))];
+        if let Some(v) = pick(ui, l, "note.dir", (tr("settings.paper_dir"), tr("settings.paper_dir_note")), c.paper_dir, &dirs) {
+            asked.push(("note.dir", word(v.word())));
+        }
+        sep(ui, l);
+        let rules = [
+            (Rule::Shu, tr("settings.rule_shu")),
+            (Rule::Midori, tr("settings.rule_midori")),
+            (Rule::Ao, tr("settings.rule_ao")),
+            (Rule::Sumi, tr("settings.rule_sumi")),
+        ];
+        if let Some(v) = pick(ui, l, "note.rule", (tr("settings.rule"), tr("settings.rule_note")), c.rule, &rules) {
+            asked.push(("note.rule", word(v.word())));
+        }
+    });
+    section(ui, l, tr("settings.genko"), |ui| {
+        // A grid from the file that is not in the list is put in it.
+        let mut grids = vec![(20, 20), (20, 10)];
+        if !grids.contains(&(c.cols, c.rows)) {
+            grids.push((c.cols, c.rows));
+        }
+        let grids: Vec<((u32, u32), String)> = grids
+            .into_iter()
+            .map(|(x, y)| ((x, y), t.trf("settings.grid_n", &[&x.to_string(), &y.to_string(), &(x * y).to_string()])))
+            .collect();
+        let grids: Vec<((u32, u32), &str)> = grids.iter().map(|(g, w)| (*g, w.as_str())).collect();
+        if let Some((x, y)) = pick(ui, l, "note.cols", (tr("settings.grid"), tr("settings.grid_note")), (c.cols, c.rows), &grids) {
+            asked.push(("note.cols", x.into()));
+            asked.push(("note.rows", y.into()));
+        }
+        sep(ui, l);
+        if keyed_row(ui, l, "note.indent", tr("settings.indent"), tr("settings.indent_note"), |ui| ito_prefs::switch(ui, l, c.indent)) {
+            asked.push(("note.indent", (!c.indent).into()));
+        }
+        sep(ui, l);
+        let hangs = [(Hang::In, tr("settings.hang_in")), (Hang::Out, tr("settings.hang_out")), (Hang::Off, tr("settings.hang_off"))];
+        if let Some(v) = pick(ui, l, "note.hang", (tr("settings.hang"), tr("settings.hang_note")), c.hang, &hangs) {
+            asked.push(("note.hang", word(v.word())));
+        }
+        sep(ui, l);
+        if keyed_row(ui, l, "note.merge", tr("settings.merge"), tr("settings.merge_note"), |ui| ito_prefs::switch(ui, l, c.merge)) {
+            asked.push(("note.merge", (!c.merge).into()));
+        }
+    });
+    section(ui, l, tr("settings.sheet"), |ui| {
+        let mut wraps = vec![0, 20, 30, 40];
+        if !wraps.contains(&c.wrap) {
+            wraps.push(c.wrap);
+            wraps.sort_unstable();
+        }
+        let wraps: Vec<(u32, String)> = wraps
+            .into_iter()
+            .map(|n| (n, if n == 0 { tr("settings.wrap_auto").to_owned() } else { t.trf("settings.chars_n", &[&n.to_string()]) }))
+            .collect();
+        let wraps: Vec<(u32, &str)> = wraps.iter().map(|(n, w)| (*n, w.as_str())).collect();
+        if let Some(n) = pick(ui, l, "note.wrap", (tr("settings.wrap"), tr("settings.wrap_note")), c.wrap, &wraps) {
+            asked.push(("note.wrap", n.into()));
+        }
+    });
+    asked
+}
+
 /// A row with a list to pick one of; `key` is its key in config.toml.
 fn pick<T: PartialEq + Copy>(
     ui: &mut Ui,
@@ -359,11 +461,12 @@ fn preview(ui: &mut Ui, sample: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Screen;
     use egui::{pos2, Rect};
 
     #[test]
     fn pages_follow_ito_default_order() {
-        assert_eq!([GENERAL, THEME, WRITE, KEYS, ADVANCED, ABOUT], [0, 1, 2, 3, 4, 5]);
+        assert_eq!([GENERAL, THEME, WRITE, CLEAN, KEYS, ADVANCED, ABOUT], [0, 1, 2, 3, 4, 5, 6]);
         let order = [Page::General, Page::Theme, Page::App, Page::Keys, Page::Advanced, Page::About];
         assert_eq!(ito_prefs::default_order(&HAS), order);
     }
@@ -452,20 +555,22 @@ mod tests {
             assert!(idx.iter().any(|(p, s)| *p == KEYS && *s == t.tr("keys.app")), "{lang}");
             assert!(idx.iter().any(|(p, s)| *p == ABOUT && !s.is_empty()));
             assert!(idx.iter().any(|(p, s)| *p == WRITE && *s == t.tr("settings.char_limit")), "{lang}");
+            assert!(idx.iter().any(|(p, s)| *p == CLEAN && *s == t.tr("settings.paper")), "{lang}");
+            assert!(idx.iter().any(|(p, s)| *p == CLEAN && *s == "note.paper"), "{lang}");
         }
     }
 
-    /// Every key on the Writing page is one config.toml takes, so the search
-    /// finds the rows by what the file calls them.
+    /// Every key on the Writing and the Clean copy pages is one config.toml
+    /// takes, so the search finds the rows by what the file calls them.
     #[test]
-    fn the_writing_page_keys_are_settings() {
+    fn the_page_keys_are_settings() {
         let mut c = Config::default();
         let value = |k: &str| match k {
-            "note.no_erase" => toml::Value::Boolean(true),
-            "note.char_limit" | "note.time_limit" | "write.font_size" => toml::Value::Integer(40),
+            "note.no_erase" | "note.indent" | "note.merge" => toml::Value::Boolean(true),
+            "note.char_limit" | "note.time_limit" | "write.font_size" | "note.cols" | "note.rows" | "note.wrap" => toml::Value::Integer(20),
             _ => toml::Value::String(String::new()),
         };
-        for k in WRITE_KEYS {
+        for k in WRITE_KEYS.into_iter().chain(CLEAN_KEYS) {
             let (table, key) = k.split_once('.').unwrap();
             let r = c.apply(table, key, &value(k));
             assert!(r.as_ref().map_or_else(|e| !e.contains("not a setting"), |_| true), "{k}: {r:?}");
@@ -481,16 +586,20 @@ mod tests {
             let mut a = App::with(crate::prefs::Prefs::empty());
             (a.table, _) = crate::i18n::table(lang);
             a.prefs.config.char_limit = 333;
-            a.prefs.state.page = WRITE;
+            (a.prefs.config.cols, a.prefs.config.rows, a.prefs.config.wrap) = (24, 12, 33);
             a.screen = Screen::Settings;
             let ctx = egui::Context::default();
-            for _ in 0..2 {
-                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
-                    egui::CentralPanel::default().show(ui, |ui| show(ui, &mut a));
-                });
-                out.textures_delta.clear();
+            for page in [WRITE, CLEAN] {
+                a.prefs.state.page = page;
+                for _ in 0..2 {
+                    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                        egui::CentralPanel::default().show(ui, |ui| show(ui, &mut a));
+                    });
+                    out.textures_delta.clear();
+                }
             }
             assert_eq!(a.prefs.config.char_limit, 333, "drawing changes nothing");
+            assert_eq!((a.prefs.config.cols, a.prefs.config.rows, a.prefs.config.wrap), (24, 12, 33), "drawing changes nothing");
         }
         let dir = std::env::temp_dir().join(format!("fude-settings-write-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -509,6 +618,16 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert!(text.contains("[note]") && text.contains("char_limit = 400"), "{text}");
+        a.prefs.config_change("note", "paper", toml::Value::String("graph".into()), "");
+        assert_eq!(a.prefs.config.paper, Paper::Graph, "in force at once");
+        for _ in 0..500 {
+            text = std::fs::read_to_string(&file).unwrap_or_default();
+            if text.contains("graph") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(text.contains(r#"paper = "graph""#) && text.contains("char_limit = 400"), "{text}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

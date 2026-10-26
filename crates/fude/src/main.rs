@@ -3,18 +3,21 @@
 //! What is wired here: the window (its place kept, its own title bar with the
 //! bell and the notice list), common.toml's theme, language and scale, the
 //! keymap, the settings screen, the key list, the palette, `--keys`,
-//! `--version` / `--help`, F12 (the bug report), and the writing band with
-//! its draft. The clean copy and the notebooks come next (TODO.md).
+//! `--version` / `--help`, F12 (the bug report), the writing band with its
+//! draft, and the clean copy Esc opens. The notebooks come next (TODO.md).
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod band;
+mod clean;
 mod config;
+mod draw;
 mod fonts;
 mod help;
 mod i18n;
 mod icon;
 mod keymap;
+mod layout;
 mod prefs;
 mod settings;
 mod vertical;
@@ -30,7 +33,7 @@ use ito_keyscript::{Do, Runner, Step};
 use ito_notices::Kind;
 
 use crate::band::{Band, Hit};
-use crate::config::{Dir, TimeStart};
+use crate::config::{Dir, Paper, TimeStart};
 use crate::keymap::{Act, Keymap};
 use crate::prefs::Prefs;
 
@@ -63,6 +66,8 @@ usage: fude [--keys SCRIPT] [--version | --help]
 pub enum Screen {
     /// The writing band.
     Write,
+    /// What was written, set on paper (Esc on the writing).
+    Clean,
     Settings,
     /// The key list, over the writing.
     Help,
@@ -73,6 +78,7 @@ impl Screen {
     fn name(self) -> &'static str {
         match self {
             Screen::Write => "write",
+            Screen::Clean => "clean",
             Screen::Settings => "settings",
             Screen::Help => "help",
         }
@@ -87,6 +93,10 @@ pub struct App {
     prefs: Prefs,
     keymap: Keymap,
     screen: Screen,
+    /// Where the settings and the key list go back to: the writing or the
+    /// clean copy.
+    back: Screen,
+    clean: clean::Clean,
     /// The key list's first row shown, and what its last draw found out.
     help_scroll: usize,
     help_drawn: Cell<Option<ito_help::Drawn>>,
@@ -126,7 +136,14 @@ pub struct App {
 /// What the palette can do.
 #[derive(Clone, Copy)]
 enum Command {
+    Clean,
+    Write,
     Settings,
+    CleanSettings,
+    Paper(Paper),
+    FlipDir,
+    Copy,
+    New,
     Help,
     ReportBug,
     ResetScale,
@@ -149,6 +166,8 @@ impl App {
             prefs,
             keymap,
             screen: Screen::Write,
+            back: Screen::Write,
+            clean: clean::Clean::default(),
             help_scroll: 0,
             help_drawn: Cell::new(None),
             notices: Vec::new(),
@@ -198,7 +217,7 @@ impl App {
         let scale = (self.prefs.common.scale_or_one() * 100.0).round();
         let hit: Vec<&str> = self.band.hit().iter().map(|h| if *h == Hit::Chars { "chars" } else { "time" }).collect();
         format!(
-            "screen: {}\nlang: {}\nscale: {scale}%\npalette: {}\nnotices: {}\nsettings_page: {}\nchars: {}\nback: {}\nhit: {}\ntext: {:?}\n",
+            "screen: {}\nlang: {}\nscale: {scale}%\npalette: {}\nnotices: {}\nsettings_page: {}\nchars: {}\nback: {}\nhit: {}\npaper: {} {}\nasking: {}\ntext: {:?}\n",
             self.screen.name(),
             self.lang,
             self.palette.is_some(),
@@ -207,6 +226,9 @@ impl App {
             self.band.count(),
             self.band.back(),
             hit.join(" "),
+            self.clean.sheet.paper.word(),
+            self.clean.sheet.dir.word(),
+            self.clean.asking,
             self.band.text(),
         )
     }
@@ -372,16 +394,28 @@ impl App {
     }
 
     fn run(&mut self, act: Act) {
-        let toggle = |now: Screen, to: Screen| if now == to { Screen::Write } else { to };
         match act {
-            Act::Settings => self.screen = toggle(self.screen, Screen::Settings),
+            Act::Settings => self.toggle(Screen::Settings),
             Act::Help => {
-                self.screen = toggle(self.screen, Screen::Help);
+                self.toggle(Screen::Help);
                 self.help_scroll = 0;
             }
             Act::Quit => self.quit = true,
             Act::Noop => {}
         }
+    }
+
+    /// `to`, or back to where it was opened from if it is already shown.
+    fn toggle(&mut self, to: Screen) {
+        if self.screen == to {
+            self.screen = self.back;
+            return;
+        }
+        if matches!(self.screen, Screen::Write | Screen::Clean) {
+            self.back = self.screen;
+        }
+        self.clean.asking = false;
+        self.screen = to;
     }
 
     /// On the key list: Esc closes it, and the arrows, the pages, Home and
@@ -391,7 +425,7 @@ impl App {
             return;
         }
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
-            self.screen = Screen::Write;
+            self.screen = self.back;
             return;
         }
         use egui::Key as K;
@@ -461,7 +495,17 @@ impl App {
         let tr = |k: &'static str| t.tr(k);
         let hint = |a| self.keymap.hint(a).unwrap_or_default();
         vec![
+            ito_palette::Entry::new(tr("palette.clean"), "Esc", Command::Clean),
+            ito_palette::Entry::new(tr("palette.write"), "Esc", Command::Write),
             ito_palette::Entry::new(tr("palette.settings"), hint(Act::Settings), Command::Settings),
+            ito_palette::Entry::new(tr("palette.clean_settings"), "", Command::CleanSettings),
+            ito_palette::Entry::new(tr("palette.paper_genko"), "", Command::Paper(Paper::Genko)),
+            ito_palette::Entry::new(tr("palette.paper_ruled"), "", Command::Paper(Paper::Ruled)),
+            ito_palette::Entry::new(tr("palette.paper_graph"), "", Command::Paper(Paper::Graph)),
+            ito_palette::Entry::new(tr("palette.paper_plain"), "", Command::Paper(Paper::Plain)),
+            ito_palette::Entry::new(tr("palette.flip_dir"), "", Command::FlipDir),
+            ito_palette::Entry::new(tr("palette.copy"), "Ctrl+C", Command::Copy),
+            ito_palette::Entry::new(tr("palette.new"), "Ctrl+N", Command::New),
             ito_palette::Entry::new(tr("palette.help"), hint(Act::Help), Command::Help),
             ito_palette::Entry::new(tr("palette.report_bug"), "F12", Command::ReportBug),
             ito_palette::Entry::new(tr("palette.reset_scale"), "Ctrl+0", Command::ResetScale),
@@ -492,12 +536,49 @@ impl App {
         let words = ito_palette::Words { hint: tr("palette.hint"), none: tr("palette.none"), header: "", footer: "" };
         match ito_palette::show(ctx, &mut view, &self.commands(), &style, &words) {
             None => self.palette = Some(view),
-            Some(ito_palette::Answer::Pick(Command::Settings)) => self.run(Act::Settings),
-            Some(ito_palette::Answer::Pick(Command::Help)) => self.run(Act::Help),
-            Some(ito_palette::Answer::Pick(Command::ReportBug)) => self.report_bug(ctx),
-            Some(ito_palette::Answer::Pick(Command::ResetScale)) => self.scale_to(ctx, ito_common::ScaleTo::Reset),
-            Some(ito_palette::Answer::Pick(Command::Quit)) => self.quit = true,
+            Some(ito_palette::Answer::Pick(c)) => self.command(ctx, c),
             Some(_) => {}
+        }
+    }
+
+    /// What a command picked in the palette does.
+    fn command(&mut self, ctx: &egui::Context, c: Command) {
+        let time = ctx.input(|i| i.time);
+        // The clean copy's own commands open it first.
+        let on_clean = |app: &mut App| {
+            if app.screen != Screen::Clean {
+                app.open_clean();
+            }
+        };
+        match c {
+            Command::Clean => self.open_clean(),
+            Command::Write if self.screen == Screen::Clean || self.back == Screen::Clean => self.write_on(),
+            Command::Write => self.screen = Screen::Write,
+            Command::Settings => self.run(Act::Settings),
+            Command::CleanSettings => {
+                self.prefs.state.page = settings::CLEAN;
+                if self.screen != Screen::Settings {
+                    self.toggle(Screen::Settings);
+                }
+            }
+            Command::Paper(p) => {
+                on_clean(self);
+                self.clean.set_sheet(draw::Sheet { paper: p, ..self.clean.sheet });
+            }
+            Command::FlipDir => {
+                on_clean(self);
+                let dir = if self.clean.sheet.dir == Dir::Vertical { Dir::Horizontal } else { Dir::Vertical };
+                self.clean.set_sheet(draw::Sheet { dir, ..self.clean.sheet });
+            }
+            Command::Copy => {
+                on_clean(self);
+                self.copy(ctx, time);
+            }
+            Command::New => self.ask_anew(time),
+            Command::Help => self.run(Act::Help),
+            Command::ReportBug => self.report_bug(ctx),
+            Command::ResetScale => self.scale_to(ctx, ito_common::ScaleTo::Reset),
+            Command::Quit => self.quit = true,
         }
     }
 
@@ -537,10 +618,15 @@ impl App {
         ctx.open_url(egui::OpenUrl::new_tab(url));
     }
 
-    /// The band takes the keys and the input method: on the writing, and
-    /// not while the palette, the notices or the Keys page have them.
+    /// The band takes the keys and the input method: on the writing, and on
+    /// the clean copy, whose first letter writes on (unless it is asking).
+    /// Not while the palette, the notices or the Keys page have them.
     fn typing_here(&self) -> bool {
-        self.screen == Screen::Write && self.palette.is_none() && !self.bell_open && !self.prefs.keys_edit.busy()
+        matches!(self.screen, Screen::Write | Screen::Clean)
+            && !self.clean.asking
+            && self.palette.is_none()
+            && !self.bell_open
+            && !self.prefs.keys_edit.busy()
     }
 
     /// The input method at the band's input point, set the way the band runs.
@@ -675,6 +761,7 @@ impl eframe::App for App {
             self.help_keys(&ctx);
         }
         let (now, time) = (Instant::now(), ctx.input(|i| i.time));
+        self.clean_keys(&ctx, time);
         self.follow_band(now, time);
         self.follow_calm(&ctx);
         let hush = ctx.animate_bool_with_time(egui::Id::new("fude-calm"), self.calm, 0.3);
@@ -690,8 +777,13 @@ impl eframe::App for App {
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(ito_theme::colors().bg)).show(ui, |ui| match self.screen {
             Screen::Settings => settings::show(ui, self),
             Screen::Write => self.write_screen(ui, typing),
+            Screen::Clean => clean::show(ui, self, false),
             Screen::Help => {
-                self.write_screen(ui, false);
+                if self.back == Screen::Clean {
+                    clean::show(ui, self, true);
+                } else {
+                    self.write_screen(ui, false);
+                }
                 let r = ui.max_rect();
                 help::show(ui, self, r);
             }
@@ -984,5 +1076,72 @@ mod tests {
         assert_eq!((again.text(), again.back()), ("書きかけ".to_owned(), 1));
         assert!(again.started() && !again.running(), "the clock stands until the band is shown");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Esc shows the clean copy and Enter writes on; a letter typed on it
+    /// writes on too, onto the band. The key list over it goes back to it.
+    #[test]
+    fn the_clean_copy_opens_and_writes_on() {
+        let ctx = egui::Context::default();
+        let mut a = App::with(Prefs::empty());
+        let none = egui::Modifiers::NONE;
+        frame(&ctx, &mut a, vec![egui::Event::Text("あいう".into())]);
+        frame(&ctx, &mut a, key(egui::Key::Escape, none));
+        assert_eq!(a.screen, Screen::Clean);
+        assert!(a.report().contains("screen: clean\n"), "{}", a.report());
+        frame(&ctx, &mut a, key(egui::Key::Enter, none));
+        assert_eq!(a.screen, Screen::Write);
+        assert_eq!(a.band.text(), "あいう", "the Enter that wrote on is no paragraph");
+        frame(&ctx, &mut a, key(egui::Key::Escape, none));
+        frame(&ctx, &mut a, vec![egui::Event::Text("え".into())]);
+        assert_eq!(a.screen, Screen::Write);
+        assert_eq!(a.band.text(), "あいうえ", "the letter that wrote on is on the band");
+        frame(&ctx, &mut a, key(egui::Key::Escape, none));
+        frame(&ctx, &mut a, key(egui::Key::F1, none));
+        assert_eq!(a.screen, Screen::Help);
+        frame(&ctx, &mut a, key(egui::Key::Escape, none));
+        assert_eq!(a.screen, Screen::Clean, "the key list goes back to the clean copy");
+    }
+
+    /// Ctrl+N asks before what is written goes: Esc keeps it, and starting
+    /// anew leaves an empty band. With nothing written it does not ask.
+    #[test]
+    fn a_new_piece_asks_first() {
+        let ctx = egui::Context::default();
+        let mut a = App::with(Prefs::empty());
+        let ctrl = egui::Modifiers { ctrl: true, command: true, ..Default::default() };
+        frame(&ctx, &mut a, vec![egui::Event::Text("書いた".into())]);
+        frame(&ctx, &mut a, key(egui::Key::N, ctrl));
+        assert_eq!(a.screen, Screen::Clean);
+        assert!(a.clean.asking);
+        frame(&ctx, &mut a, vec![egui::Event::Text("x".into())]);
+        assert_eq!((a.screen, a.band.text().as_str()), (Screen::Clean, "書いた"), "a letter does not write while it asks");
+        frame(&ctx, &mut a, key(egui::Key::Escape, egui::Modifiers::NONE));
+        assert!(!a.clean.asking);
+        assert_eq!((a.screen, a.band.text().as_str()), (Screen::Clean, "書いた"), "Esc keeps what is written");
+        frame(&ctx, &mut a, key(egui::Key::N, ctrl));
+        assert!(a.clean.asking);
+        a.start_anew(1.0);
+        assert_eq!((a.screen, a.band.text().as_str()), (Screen::Write, ""));
+        assert!(!a.clean.asking);
+        frame(&ctx, &mut a, key(egui::Key::N, ctrl));
+        assert_eq!(a.screen, Screen::Write, "nothing written: nothing to ask");
+    }
+
+    /// A limit met, then the clean copy and writing on: the limit grows, so
+    /// the band goes on without it.
+    #[test]
+    fn writing_on_past_a_limit_raises_it() {
+        let ctx = egui::Context::default();
+        let mut a = App::with(Prefs::empty());
+        a.prefs.config.char_limit = 3;
+        frame(&ctx, &mut a, Vec::new());
+        frame(&ctx, &mut a, vec![egui::Event::Text("あいう".into())]);
+        assert_eq!(a.band.hit(), [band::Hit::Chars]);
+        frame(&ctx, &mut a, key(egui::Key::Escape, egui::Modifiers::NONE));
+        frame(&ctx, &mut a, key(egui::Key::Enter, egui::Modifiers::NONE));
+        assert!(a.band.hit().is_empty(), "{:?}", a.band.hit());
+        frame(&ctx, &mut a, vec![egui::Event::Text("え".into())]);
+        assert!(a.band.hit().is_empty(), "the limit grew past 4");
     }
 }

@@ -54,7 +54,7 @@ fn form(c: char) -> Option<char> {
     })
 }
 
-fn small_kana(c: char) -> bool {
+pub fn small_kana(c: char) -> bool {
     "ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ".contains(c)
 }
 

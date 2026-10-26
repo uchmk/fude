@@ -1,6 +1,6 @@
-//! The key list (F1 by default): the keymap's own keys as they are now and
-//! the keys fude reads before the keymap, drawn by `ito-help` in a card over
-//! the writing.
+//! The key list (F1 by default): the keymap's own keys as they are now, the
+//! keys fude reads before the keymap and the clean copy's, drawn by
+//! `ito-help` in a card over the writing or the clean copy.
 
 use egui::{pos2, vec2, Align2, CornerRadius, FontId, Rect, Stroke, StrokeKind, Ui};
 
@@ -32,7 +32,19 @@ impl App {
             ("<C-0>".to_owned(), tr("help.zoom_reset")),
             ("<F12>".to_owned(), tr("help.bug")),
         ];
-        vec![ito_help::Group { title: tr("help.keys"), rows }, ito_help::Group { title: tr("help.fixed"), rows: fixed }]
+        // The clean copy's own keys, read before the keymap too.
+        let clean = vec![
+            ("<Esc>".to_owned(), tr("help.clean_open")),
+            ("<Esc> / <CR>".to_owned(), tr("help.clean_go_on")),
+            ("<C-c>".to_owned(), tr("help.clean_copy")),
+            ("<C-n>".to_owned(), tr("help.clean_new")),
+            ("<LeftMouse>".to_owned(), tr("help.clean_click")),
+        ];
+        vec![
+            ito_help::Group { title: tr("help.keys"), rows },
+            ito_help::Group { title: tr("help.fixed"), rows: fixed },
+            ito_help::Group { title: tr("help.clean"), rows: clean },
+        ]
     }
 
     /// The arrows, the pages, Home and End scroll the list; whether `key`
@@ -104,11 +116,13 @@ mod tests {
         let (t, _) = crate::i18n::table("ja");
         a.table = t;
         let groups = a.help_groups();
-        assert_eq!(groups.len(), 2);
+        assert_eq!(groups.len(), 3);
         assert!(groups[0].rows.contains(&("<C-,>".to_owned(), "設定を開く".to_owned())), "{:?}", groups[0].rows);
         assert!(groups[0].rows.iter().any(|(k, _)| k == "<F1>"));
         assert!(groups[1].rows.iter().any(|(k, _)| k == "<Esc>"));
         assert!(groups[1].rows.iter().all(|(_, d)| !d.is_empty() && !d.starts_with("help.")), "{:?}", groups[1].rows);
+        assert!(groups[2].rows.iter().any(|(k, _)| k == "<C-n>"));
+        assert!(groups[2].rows.iter().all(|(_, d)| !d.is_empty() && !d.starts_with("help.")), "{:?}", groups[2].rows);
     }
 
     /// The keys scroll only once the list has been drawn, and stay inside it.

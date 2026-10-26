@@ -279,6 +279,16 @@ impl Band {
         true
     }
 
+    /// The cursor before the text's `i`th letter (a click on the clean copy).
+    pub fn set_cursor(&mut self, i: usize) -> bool {
+        self.move_to(i as isize)
+    }
+
+    /// A new piece: nothing written and the clock at zero, the limits kept.
+    pub fn reset(&mut self) {
+        *self = Band { limits: self.limits, ..Default::default() };
+    }
+
     fn move_to(&mut self, i: isize) -> bool {
         let n = self.text.len();
         let back = n - i.clamp(0, n as isize) as usize;
@@ -319,8 +329,7 @@ impl Band {
 
     /// Each limit reached, raised by its own step until it is past where the
     /// writing already is: what goes on to add to the letters and the time.
-    /// The clean copy (0.4.0) shows it, and [`Band::go_on`] takes it.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// The clean copy shows it, and [`Band::go_on`] takes it.
     pub fn raised(&self, now: Instant) -> (u32, Duration) {
         let (mut add_c, mut add_t) = (self.add_chars, self.add_time);
         let (n, el) = (self.count(), self.elapsed(now));
@@ -340,8 +349,7 @@ impl Band {
 
     /// Writing on after a limit raises it (or, with `free`, drops it), so its
     /// band does not come straight back. Coming back from the clean copy
-    /// (0.4.0) does it.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// does it.
     pub fn go_on(&mut self, now: Instant, free: bool) {
         if !self.hit.is_empty() {
             if free {
@@ -572,5 +580,28 @@ mod tests {
         // A draft from somewhere else does not put the cursor past the end.
         let k = Kept { text: "あ".into(), back: 9, ..Default::default() };
         assert_eq!(Band::from_kept(k, Limits::default()).cursor(), 0);
+    }
+
+    #[test]
+    fn a_click_puts_the_cursor_and_a_new_piece_keeps_only_the_limits() {
+        let (mut b, t0) = band(Limits { chars: 3, minutes: 5 });
+        typed(
+            &mut b,
+            t0,
+            "あいう
+えお",
+        );
+        assert!(b.set_cursor(2) && !b.set_cursor(2));
+        assert_eq!(
+            shown(&b),
+            "あい|う
+えお"
+        );
+        b.set_cursor(99);
+        assert_eq!(b.back(), 0);
+        b.reset();
+        assert_eq!((b.text(), b.hit().len(), b.started(), b.running()), (String::new(), 0, false, false));
+        assert_eq!(b.elapsed(t0 + Duration::from_secs(9)), Duration::ZERO);
+        assert_eq!(b.limits, Limits { chars: 3, minutes: 5 });
     }
 }

@@ -59,6 +59,24 @@ words! {
     OnContinue { Add = "add", Free = "free" }
 }
 
+words! {
+    /// The paper of the clean copy: a manuscript grid, a ruled or a graph
+    /// sheet, or a plain one; `Auto` is the grid, or ruled across the page
+    /// for Latin text.
+    Paper { Auto = "auto", Genko = "genko", Ruled = "ruled", Graph = "graph", Plain = "plain" }
+}
+
+words! {
+    /// The colour the paper is ruled in: vermilion, green, blue or ink.
+    Rule { Shu = "shu", Midori = "midori", Ao = "ao", Sumi = "sumi" }
+}
+
+words! {
+    /// A stop that would open a line of the grid: in the last cell with what
+    /// it follows, past the last cell, or at the line's head after all.
+    Hang { In = "in", Out = "out", Off = "off" }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
     pub font_size: u32,
@@ -72,6 +90,21 @@ pub struct Config {
     /// Minutes; 0 is none.
     pub time_limit: u32,
     pub no_erase: bool,
+    pub paper: Paper,
+    /// Which way the clean copy is written.
+    pub paper_dir: Dir,
+    pub rule: Rule,
+    /// The grid: letters to a line, lines to a sheet.
+    pub cols: u32,
+    pub rows: u32,
+    /// A paragraph opens a letter in.
+    pub indent: bool,
+    pub hang: Hang,
+    /// `。」` in one cell.
+    pub merge: bool,
+    /// Letters to a line of a sheet that is not a grid; 0 is as the window
+    /// fits.
+    pub wrap: u32,
 }
 
 impl Default for Config {
@@ -86,6 +119,15 @@ impl Default for Config {
             char_limit: 0,
             time_limit: 0,
             no_erase: false,
+            paper: Paper::default(),
+            paper_dir: Dir::Vertical,
+            rule: Rule::default(),
+            cols: 20,
+            rows: 20,
+            indent: true,
+            hang: Hang::default(),
+            merge: true,
+            wrap: 0,
         }
     }
 }
@@ -93,6 +135,9 @@ impl Default for Config {
 pub const FONT_SIZE: (u32, u32) = (12, 120);
 pub const CHAR_LIMIT: (u32, u32) = (0, 100_000);
 pub const TIME_LIMIT: (u32, u32) = (0, 600);
+pub const COLS: (u32, u32) = (5, 40);
+pub const ROWS: (u32, u32) = (2, 40);
+pub const WRAP: (u32, u32) = (0, 80);
 
 /// config.toml in `base`'s fude folder.
 pub fn path(base: &Path) -> PathBuf {
@@ -151,6 +196,10 @@ impl Config {
                 None => Err(format!("{v} is not one of {}", all.iter().map(|(_, w)| format!("\"{w}\"")).collect::<Vec<_>>().join(", "))),
             }
         }
+        fn switch(v: &toml::Value, to: &mut bool) -> Result<(), String> {
+            *to = v.as_bool().ok_or_else(|| format!("{v} is not true or false"))?;
+            Ok(())
+        }
         match (table, key) {
             ("write", "font_size") => number(value, FONT_SIZE, &mut self.font_size),
             ("write", "dir") => word(value, Dir::parse, Dir::ALL, &mut self.dir),
@@ -160,10 +209,16 @@ impl Config {
             ("write", "on_continue") => word(value, OnContinue::parse, OnContinue::ALL, &mut self.on_continue),
             ("note", "char_limit") => number(value, CHAR_LIMIT, &mut self.char_limit),
             ("note", "time_limit") => number(value, TIME_LIMIT, &mut self.time_limit),
-            ("note", "no_erase") => {
-                self.no_erase = value.as_bool().ok_or_else(|| format!("{value} is not true or false"))?;
-                Ok(())
-            }
+            ("note", "no_erase") => switch(value, &mut self.no_erase),
+            ("note", "paper") => word(value, Paper::parse, Paper::ALL, &mut self.paper),
+            ("note", "dir") => word(value, Dir::parse, Dir::ALL, &mut self.paper_dir),
+            ("note", "rule") => word(value, Rule::parse, Rule::ALL, &mut self.rule),
+            ("note", "cols") => number(value, COLS, &mut self.cols),
+            ("note", "rows") => number(value, ROWS, &mut self.rows),
+            ("note", "indent") => switch(value, &mut self.indent),
+            ("note", "hang") => word(value, Hang::parse, Hang::ALL, &mut self.hang),
+            ("note", "merge") => switch(value, &mut self.merge),
+            ("note", "wrap") => number(value, WRAP, &mut self.wrap),
             _ => Err("not a setting of fude".into()),
         }
     }
@@ -196,7 +251,9 @@ mod tests {
     #[test]
     fn nothing_is_the_defaults() {
         assert_eq!(parse("").unwrap(), (Config::default(), vec![]));
-        assert_eq!(Config::default().font_size, 40);
+        let c = Config::default();
+        assert_eq!((c.font_size, c.paper, c.paper_dir, c.cols, c.rows), (40, Paper::Auto, Dir::Vertical, 20, 20));
+        assert!(c.indent && c.merge);
     }
 
     #[test]
@@ -215,6 +272,15 @@ colour = "red"
 char_limit = 400
 time_limit = 15
 no_erase = true
+paper = "graph"
+dir = "horizontal"
+rule = "ao"
+cols = 4
+rows = 10
+indent = false
+hang = "out"
+merge = "yes"
+wrap = 30
 "#;
         let (c, warn) = parse(text).unwrap();
         assert_eq!(c.font_size, 120);
@@ -222,7 +288,10 @@ no_erase = true
         assert_eq!((c.time_start, c.on_continue), (TimeStart::Open, OnContinue::Free));
         assert_eq!(c.limits(), Limits { chars: 400, minutes: 15 });
         assert!(c.no_erase);
-        assert_eq!(warn.len(), 3, "{warn:?}");
+        assert_eq!((c.paper, c.paper_dir, c.rule), (Paper::Graph, Dir::Horizontal, Rule::Ao));
+        assert_eq!((c.cols, c.rows, c.wrap), (5, 10, 30));
+        assert_eq!((c.indent, c.hang, c.merge), (false, Hang::Out, true));
+        assert_eq!(warn.len(), 5, "{warn:?}");
         let said = |a: &str, b: &str| warn.iter().any(|w| w.contains(a) && w.contains(b));
         assert!(said("font_size", "120 is used") && said("point", "\"start\"") && said("colour", "not a setting"), "{warn:?}");
         assert!(parse("[write").is_err());
