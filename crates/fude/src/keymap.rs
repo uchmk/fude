@@ -1,9 +1,9 @@
 //! The keymap: `defaults/keymap.toml` with the user's
 //! `<config>/uchmk/fude/keymap.toml` laid over it by `ito-keymap` (a
 //! section per layer, each with `keymap`, `prepend_keymap` and
-//! `append_keymap`; the first binding that matches wins). Only the keys
-//! every uchmk app has are in it so far; the writing band's own keys come
-//! with the band.
+//! `append_keymap`; the first binding that matches wins). The keys every
+//! uchmk app has, and the shelf's; the writing band's own keys are the
+//! band's.
 
 use ito_keys::Key;
 
@@ -27,6 +27,8 @@ pub enum Act {
     Settings,
     /// Open the key list, or close it.
     Help,
+    /// Open the shelf, or close it.
+    Shelf,
     Quit,
     /// Does nothing: a key taken away from a built-in operation.
     Noop,
@@ -38,6 +40,7 @@ pub fn parse(s: &str) -> Result<Act, String> {
     match words.as_slice() {
         ["settings"] => Ok(Act::Settings),
         ["help"] => Ok(Act::Help),
+        ["shelf"] => Ok(Act::Shelf),
         ["quit"] => Ok(Act::Quit),
         [w] if *w == NOOP => Ok(Act::Noop),
         _ => Err(format!("`{s}` is not a command")),
@@ -126,6 +129,7 @@ mod tests {
         assert_eq!(km.act(key("<C-,>")), Some(Act::Settings));
         assert_eq!(km.act(key("<F1>")), Some(Act::Help));
         assert_eq!(km.act(key("<C-q>")), Some(Act::Quit));
+        assert_eq!(km.act(key("<C-o>")), Some(Act::Shelf));
         assert_eq!(km.act(key("a")), None, "a plain letter is the text's");
         assert_eq!(km.hint(Act::Settings).as_deref(), Some("Ctrl+,"));
     }
@@ -173,5 +177,6 @@ mod tests {
         assert_eq!(at(K::Comma, ctrl), Some(Act::Settings));
         assert_eq!(at(K::F1, M::NONE), Some(Act::Help));
         assert_eq!(at(K::Q, ctrl), Some(Act::Quit));
+        assert_eq!(at(K::O, ctrl), Some(Act::Shelf));
     }
 }

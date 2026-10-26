@@ -1,6 +1,7 @@
 //! The key list (F1 by default): the keymap's own keys as they are now, the
-//! keys fude reads before the keymap and the clean copy's, drawn by
-//! `ito-help` in a card over the writing or the clean copy.
+//! keys fude reads before the keymap, the clean copy's and the shelf's,
+//! drawn by `ito-help` in a card over the writing, the clean copy or the
+//! shelf.
 
 use egui::{pos2, vec2, Align2, CornerRadius, FontId, Rect, Stroke, StrokeKind, Ui};
 
@@ -38,12 +39,24 @@ impl App {
             ("<Esc> / <CR>".to_owned(), tr("help.clean_go_on")),
             ("<C-c>".to_owned(), tr("help.clean_copy")),
             ("<C-n>".to_owned(), tr("help.clean_new")),
+            ("<C-s>".to_owned(), tr("help.clean_save")),
+            ("<Left> / <Right>".to_owned(), tr("help.clean_flip")),
             ("<LeftMouse>".to_owned(), tr("help.clean_click")),
+        ];
+        // The shelf's (Ctrl+O by default), read before the keymap too.
+        let shelf = vec![
+            ("<Up> / <Down>".to_owned(), tr("help.shelf_move")),
+            ("<CR>".to_owned(), tr("help.shelf_open")),
+            ("<Left>".to_owned(), tr("help.shelf_back")),
+            ("n".to_owned(), tr("help.shelf_new")),
+            ("<F2>".to_owned(), tr("help.shelf_rename")),
+            ("<Esc>".to_owned(), tr("help.shelf_close")),
         ];
         vec![
             ito_help::Group { title: tr("help.keys"), rows },
             ito_help::Group { title: tr("help.fixed"), rows: fixed },
             ito_help::Group { title: tr("help.clean"), rows: clean },
+            ito_help::Group { title: tr("help.shelf"), rows: shelf },
         ]
     }
 
@@ -109,20 +122,24 @@ mod tests {
     use crate::prefs::Prefs;
     use crate::App;
 
-    /// The keymap's keys, translated, then the ones read before it.
+    /// The keymap's keys, translated, then the ones read before it: the
+    /// fixed ones, the clean copy's and the shelf's.
     #[test]
     fn the_list_has_the_keymap_and_the_fixed_keys() {
         let mut a = App::with(Prefs::empty());
         let (t, _) = crate::i18n::table("ja");
         a.table = t;
         let groups = a.help_groups();
-        assert_eq!(groups.len(), 3);
+        assert_eq!(groups.len(), 4);
         assert!(groups[0].rows.contains(&("<C-,>".to_owned(), "設定を開く".to_owned())), "{:?}", groups[0].rows);
         assert!(groups[0].rows.iter().any(|(k, _)| k == "<F1>"));
+        assert!(groups[0].rows.contains(&("<C-o>".to_owned(), "本棚を開く".to_owned())), "{:?}", groups[0].rows);
         assert!(groups[1].rows.iter().any(|(k, _)| k == "<Esc>"));
         assert!(groups[1].rows.iter().all(|(_, d)| !d.is_empty() && !d.starts_with("help.")), "{:?}", groups[1].rows);
         assert!(groups[2].rows.iter().any(|(k, _)| k == "<C-n>"));
         assert!(groups[2].rows.iter().all(|(_, d)| !d.is_empty() && !d.starts_with("help.")), "{:?}", groups[2].rows);
+        assert!(groups[3].rows.iter().any(|(k, _)| k == "<F2>"));
+        assert!(groups[3].rows.iter().all(|(_, d)| !d.is_empty() && !d.starts_with("help.")), "{:?}", groups[3].rows);
     }
 
     /// The keys scroll only once the list has been drawn, and stay inside it.

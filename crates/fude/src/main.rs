@@ -4,7 +4,7 @@
 //! bell and the notice list), common.toml's theme, language and scale, the
 //! keymap, the settings screen, the key list, the palette, `--keys`,
 //! `--version` / `--help`, F12 (the bug report), the writing band with its
-//! draft, and the clean copy Esc opens. The notebooks come next (TODO.md).
+//! draft, the clean copy Esc opens, and the notebooks on the shelf (Ctrl+O).
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
@@ -18,8 +18,10 @@ mod i18n;
 mod icon;
 mod keymap;
 mod layout;
+mod notebook;
 mod prefs;
 mod settings;
+mod shelf;
 mod vertical;
 mod write;
 
@@ -71,6 +73,8 @@ pub enum Screen {
     Settings,
     /// The key list, over the writing.
     Help,
+    /// The notebooks and their pieces (Ctrl+O).
+    Shelf,
 }
 
 impl Screen {
@@ -81,6 +85,7 @@ impl Screen {
             Screen::Clean => "clean",
             Screen::Settings => "settings",
             Screen::Help => "help",
+            Screen::Shelf => "shelf",
         }
     }
 }
@@ -93,8 +98,8 @@ pub struct App {
     prefs: Prefs,
     keymap: Keymap,
     screen: Screen,
-    /// Where the settings and the key list go back to: the writing or the
-    /// clean copy.
+    /// Where the settings and the key list go back to: the writing, the
+    /// clean copy or the shelf.
     back: Screen,
     clean: clean::Clean,
     /// The key list's first row shown, and what its last draw found out.
@@ -131,6 +136,16 @@ pub struct App {
     draft_due: Option<f64>,
     /// The band was on the screen in the last frame.
     on_band: bool,
+    /// The notebooks' folder (none: they are kept in memory, as for a
+    /// script), the notebooks as last read, the one written in, the piece on
+    /// the band (none until it has a letter), and the thread that reads and
+    /// writes them.
+    root: Option<PathBuf>,
+    notes: Vec<notebook::Note>,
+    note: String,
+    piece: Option<String>,
+    worker: Option<notebook::Worker>,
+    shelf: shelf::Shelf,
 }
 
 /// What the palette can do.
@@ -144,6 +159,8 @@ enum Command {
     FlipDir,
     Copy,
     New,
+    Shelf,
+    Save,
     Help,
     ReportBug,
     ResetScale,
@@ -188,6 +205,12 @@ impl App {
             draft: None,
             draft_due: None,
             on_band: false,
+            root: None,
+            notes: Vec::new(),
+            note: String::new(),
+            piece: None,
+            worker: None,
+            shelf: shelf::Shelf::default(),
         };
         for w in errors.iter().chain(&warnings) {
             app.say(Kind::Warn, w);
@@ -217,7 +240,7 @@ impl App {
         let scale = (self.prefs.common.scale_or_one() * 100.0).round();
         let hit: Vec<&str> = self.band.hit().iter().map(|h| if *h == Hit::Chars { "chars" } else { "time" }).collect();
         format!(
-            "screen: {}\nlang: {}\nscale: {scale}%\npalette: {}\nnotices: {}\nsettings_page: {}\nchars: {}\nback: {}\nhit: {}\npaper: {} {}\nasking: {}\ntext: {:?}\n",
+            "screen: {}\nlang: {}\nscale: {scale}%\npalette: {}\nnotices: {}\nsettings_page: {}\nchars: {}\nback: {}\nhit: {}\npaper: {} {}\nnote: {}\npiece: {}\ntext: {:?}\n",
             self.screen.name(),
             self.lang,
             self.palette.is_some(),
@@ -228,7 +251,8 @@ impl App {
             hit.join(" "),
             self.clean.sheet.paper.word(),
             self.clean.sheet.dir.word(),
-            self.clean.asking,
+            self.note,
+            self.piece.as_deref().unwrap_or(""),
             self.band.text(),
         )
     }
@@ -401,6 +425,7 @@ impl App {
                 self.help_scroll = 0;
             }
             Act::Quit => self.quit = true,
+            Act::Shelf => self.toggle_shelf(),
             Act::Noop => {}
         }
     }
@@ -411,10 +436,9 @@ impl App {
             self.screen = self.back;
             return;
         }
-        if matches!(self.screen, Screen::Write | Screen::Clean) {
+        if matches!(self.screen, Screen::Write | Screen::Clean | Screen::Shelf) {
             self.back = self.screen;
         }
-        self.clean.asking = false;
         self.screen = to;
     }
 
@@ -506,6 +530,8 @@ impl App {
             ito_palette::Entry::new(tr("palette.flip_dir"), "", Command::FlipDir),
             ito_palette::Entry::new(tr("palette.copy"), "Ctrl+C", Command::Copy),
             ito_palette::Entry::new(tr("palette.new"), "Ctrl+N", Command::New),
+            ito_palette::Entry::new(tr("palette.shelf"), hint(Act::Shelf), Command::Shelf),
+            ito_palette::Entry::new(tr("palette.save"), "Ctrl+S", Command::Save),
             ito_palette::Entry::new(tr("palette.help"), hint(Act::Help), Command::Help),
             ito_palette::Entry::new(tr("palette.report_bug"), "F12", Command::ReportBug),
             ito_palette::Entry::new(tr("palette.reset_scale"), "Ctrl+0", Command::ResetScale),
@@ -556,7 +582,7 @@ impl App {
             Command::Write => self.screen = Screen::Write,
             Command::Settings => self.run(Act::Settings),
             Command::CleanSettings => {
-                self.prefs.state.page = settings::CLEAN;
+                self.prefs.state.page = settings::NOTE;
                 if self.screen != Screen::Settings {
                     self.toggle(Screen::Settings);
                 }
@@ -574,7 +600,9 @@ impl App {
                 on_clean(self);
                 self.copy(ctx, time);
             }
-            Command::New => self.ask_anew(time),
+            Command::New => self.new_piece(time),
+            Command::Shelf => self.toggle_shelf(),
+            Command::Save => self.save_piece(time),
             Command::Help => self.run(Act::Help),
             Command::ReportBug => self.report_bug(ctx),
             Command::ResetScale => self.scale_to(ctx, ito_common::ScaleTo::Reset),
@@ -619,14 +647,10 @@ impl App {
     }
 
     /// The band takes the keys and the input method: on the writing, and on
-    /// the clean copy, whose first letter writes on (unless it is asking).
+    /// the clean copy, whose first letter writes on.
     /// Not while the palette, the notices or the Keys page have them.
     fn typing_here(&self) -> bool {
-        matches!(self.screen, Screen::Write | Screen::Clean)
-            && !self.clean.asking
-            && self.palette.is_none()
-            && !self.bell_open
-            && !self.prefs.keys_edit.busy()
+        matches!(self.screen, Screen::Write | Screen::Clean) && self.palette.is_none() && !self.bell_open && !self.prefs.keys_edit.busy()
     }
 
     /// The input method at the band's input point, set the way the band runs.
@@ -640,7 +664,7 @@ impl App {
 
     /// The clock runs only while the band is on the screen, and limits
     /// changed in the settings are the band's at once. Leaving the band
-    /// writes the draft.
+    /// binds the piece and writes the draft.
     fn follow_band(&mut self, now: Instant, time: f64) {
         let on = self.screen == Screen::Write;
         let limits = self.prefs.config.limits();
@@ -652,6 +676,7 @@ impl App {
         if on {
             self.band.enter(now, self.prefs.config.time_start == TimeStart::Open);
         } else {
+            self.bind_piece();
             self.draft_due = Some(time);
         }
         self.on_band = on;
@@ -682,7 +707,7 @@ impl App {
         }
         self.draft_due = None;
         if let Some(w) = &self.draft {
-            w.save_toml(&self.band.kept(Instant::now()));
+            w.save_toml(&self.draft_now());
         }
     }
 
@@ -746,6 +771,7 @@ impl eframe::App for App {
         }
         self.script(&ctx);
         self.follow_prefs(&ctx);
+        self.follow_notes();
         let typing = self.typing_here();
         // Enter, Backspace and the arrows are the input method's while it composes.
         if typing {
@@ -762,6 +788,7 @@ impl eframe::App for App {
         }
         let (now, time) = (Instant::now(), ctx.input(|i| i.time));
         self.clean_keys(&ctx, time);
+        self.shelf_keys(&ctx, time);
         self.follow_band(now, time);
         self.follow_calm(&ctx);
         let hush = ctx.animate_bool_with_time(egui::Id::new("fude-calm"), self.calm, 0.3);
@@ -778,9 +805,12 @@ impl eframe::App for App {
             Screen::Settings => settings::show(ui, self),
             Screen::Write => self.write_screen(ui, typing),
             Screen::Clean => clean::show(ui, self, false),
+            Screen::Shelf => shelf::show(ui, self, false),
             Screen::Help => {
                 if self.back == Screen::Clean {
                     clean::show(ui, self, true);
+                } else if self.back == Screen::Shelf {
+                    shelf::show(ui, self, true);
                 } else {
                     self.write_screen(ui, false);
                 }
@@ -800,17 +830,23 @@ impl eframe::App for App {
         }
     }
 
-    /// The window's place and the draft are written as it closes, and a
-    /// window that closes while a script runs says so in the done file.
+    /// The window's place, the piece and the draft are written as it
+    /// closes, and a window that closes while a script runs says so in the
+    /// done file.
     fn on_exit(&mut self) {
         if let Some(t) = &mut self.tracker {
             t.close(None);
         }
+        self.bind_piece();
         if let Some(w) = &self.draft {
-            let saved = toml::to_string(&self.band.kept(Instant::now())).map_err(|e| e.to_string()).and_then(|text| w.save_now(text));
+            let saved = toml::to_string(&self.draft_now()).map_err(|e| e.to_string()).and_then(|text| w.save_now(text));
             if let Err(e) = saved {
                 ito_console::err(&format!("fude: the draft: {e}\n"));
             }
+        }
+        // The worker binds what is still to be bound before it ends.
+        if let Some(w) = &mut self.worker {
+            w.finish();
         }
         let Some(script) = &mut self.script else { return };
         if !script.running() {
@@ -922,10 +958,14 @@ fn main() -> eframe::Result {
             cc.egui_ctx.set_zoom_factor(prefs.common.scale_or_one());
             let mut app = App::with(prefs);
             app.tracker = saved.tracker();
-            // The writing goes on where it was left.
-            if let Some(k) = draft.as_ref().and_then(|w| ito_common::kept::read::<band::Kept>(w.path())) {
-                app.band = Band::from_kept(k, app.prefs.config.limits());
-            }
+            // The writing goes on where it was left, in the notebook it was
+            // in. A script keeps its notebooks in memory, unless it is given
+            // a documents folder of its own.
+            let kept = draft.as_ref().and_then(|w| ito_common::kept::read::<shelf::Draft>(w.path()));
+            let own_docs = std::env::var_os("UCHMK_DOCUMENTS_DIR").is_some();
+            app.root = notebook::root().filter(|_| script.is_none() || own_docs);
+            let ctx = cc.egui_ctx.clone();
+            app.start_notes(kept, move || ctx.request_repaint());
             app.draft = draft;
             app.script = script.map(|steps| {
                 let mut r = Runner::new(steps, done);
@@ -1065,7 +1105,7 @@ mod tests {
         let path = dir.join("draft.toml");
         let mut kept = None;
         for _ in 0..500 {
-            kept = ito_common::kept::read::<band::Kept>(&path).filter(|k| k.back == 1);
+            kept = ito_common::kept::read::<shelf::Draft>(&path).map(|d| d.band).filter(|k| k.back == 1);
             if kept.is_some() {
                 break;
             }
@@ -1103,29 +1143,50 @@ mod tests {
         assert_eq!(a.screen, Screen::Clean, "the key list goes back to the clean copy");
     }
 
-    /// Ctrl+N asks before what is written goes: Esc keeps it, and starting
-    /// anew leaves an empty band. With nothing written it does not ask.
+    /// Ctrl+N binds what is written into its piece and starts a new one at
+    /// once, on the writing.
     #[test]
-    fn a_new_piece_asks_first() {
+    fn a_new_piece_starts_at_once() {
         let ctx = egui::Context::default();
         let mut a = App::with(Prefs::empty());
         let ctrl = egui::Modifiers { ctrl: true, command: true, ..Default::default() };
         frame(&ctx, &mut a, vec![egui::Event::Text("書いた".into())]);
-        frame(&ctx, &mut a, key(egui::Key::N, ctrl));
-        assert_eq!(a.screen, Screen::Clean);
-        assert!(a.clean.asking);
-        frame(&ctx, &mut a, vec![egui::Event::Text("x".into())]);
-        assert_eq!((a.screen, a.band.text().as_str()), (Screen::Clean, "書いた"), "a letter does not write while it asks");
         frame(&ctx, &mut a, key(egui::Key::Escape, egui::Modifiers::NONE));
-        assert!(!a.clean.asking);
-        assert_eq!((a.screen, a.band.text().as_str()), (Screen::Clean, "書いた"), "Esc keeps what is written");
+        assert_eq!(a.screen, Screen::Clean);
+        let stem = a.piece.clone().expect("leaving the band names the piece");
         frame(&ctx, &mut a, key(egui::Key::N, ctrl));
-        assert!(a.clean.asking);
-        a.start_anew(1.0);
-        assert_eq!((a.screen, a.band.text().as_str()), (Screen::Write, ""));
-        assert!(!a.clean.asking);
+        assert_eq!((a.screen, a.band.text().as_str(), a.piece.as_deref()), (Screen::Write, "", None));
+        assert_eq!(a.notes[0].piece(&stem).map(|p| p.text.as_str()), Some("書いた"), "the piece is kept");
         frame(&ctx, &mut a, key(egui::Key::N, ctrl));
-        assert_eq!(a.screen, Screen::Write, "nothing written: nothing to ask");
+        assert_eq!(a.notes[0].pieces.len(), 1, "an empty band is no piece");
+    }
+
+    /// Ctrl+O opens the shelf on the notebook written in; Esc goes back,
+    /// and a piece picked there opens on its clean copy.
+    #[test]
+    fn the_shelf_opens_and_closes() {
+        let ctx = egui::Context::default();
+        let mut a = App::with(Prefs::empty());
+        let (ctrl, none) = (egui::Modifiers { ctrl: true, command: true, ..Default::default() }, egui::Modifiers::NONE);
+        frame_at(&ctx, &mut a, vec![egui::Event::Text("一篇め".into())], Some(1.0));
+        frame_at(&ctx, &mut a, key(egui::Key::N, ctrl), Some(1.1));
+        frame_at(&ctx, &mut a, vec![egui::Event::Text("二篇め".into())], Some(1.2));
+        frame_at(&ctx, &mut a, key(egui::Key::O, ctrl), Some(2.0));
+        assert_eq!(a.screen, Screen::Shelf);
+        assert!(a.report().contains("screen: shelf\n"), "{}", a.report());
+        assert_eq!((a.shelf.open.as_deref(), a.shelf.sel), (Some(""), 1), "at the piece on the band");
+        frame_at(&ctx, &mut a, key(egui::Key::Escape, none), Some(2.05));
+        assert_eq!(a.screen, Screen::Shelf, "not the Esc of the frame it opened in");
+        frame_at(&ctx, &mut a, key(egui::Key::Escape, none), Some(2.5));
+        assert_eq!(a.screen, Screen::Write);
+        frame_at(&ctx, &mut a, key(egui::Key::O, ctrl), Some(3.0));
+        frame_at(&ctx, &mut a, key(egui::Key::ArrowDown, none), Some(3.5));
+        frame_at(&ctx, &mut a, key(egui::Key::Enter, none), Some(3.6));
+        assert_eq!((a.screen, a.band.text().as_str()), (Screen::Clean, "一篇め"));
+        frame_at(&ctx, &mut a, key(egui::Key::ArrowLeft, none), Some(3.7));
+        assert_eq!(a.band.text(), "二篇め", "on vertical paper, ← is the newer piece");
+        frame_at(&ctx, &mut a, key(egui::Key::ArrowRight, none), Some(3.8));
+        assert_eq!(a.band.text(), "一篇め");
     }
 
     /// A limit met, then the clean copy and writing on: the limit grows, so

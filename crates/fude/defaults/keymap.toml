@@ -18,3 +18,10 @@ desc = "Show the key help"
 on = "<C-q>"
 run = "quit"
 desc = "Quit"
+
+# --- fude ---
+
+[[app.keymap]]
+on = "<C-o>"
+run = "shelf"
+desc = "Open the shelf"

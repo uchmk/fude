@@ -26,7 +26,7 @@
 - [x] 0.2.0 土台: 文書（.txt）と状態（TOML）の決まりを CLAUDE.md に、`--keys`、keymap、ヘルプ、設定の画面の枠、字体、`Tracker::close`。
 - [x] 0.3.0 書く帯: 横・縦の帯、←→ で直す、Enter の段落、貼り付け、上限の帯と時計、書きかけの自動保存と続き、消せないモード。
 - [x] 0.4.0 清書: `layout/`（原稿用紙・罫線・方眼・無地、縦の字形）と `draw.rs`、Esc で清書・Enter で続き、マスのクリックで直す、ルビと傍点。
-- [ ] 0.5.0 ノート: 綴じる、本棚と篇の一覧、清書で ←→ でめくる、ノートごとの設定、昔の篇を開いて直す。
+- [x] 0.5.0 ノート: 綴じる、本棚と篇の一覧、清書で ←→ でめくる、ノートごとの設定、昔の篇を開いて直す。
 - [ ] 0.6.0 書くのを助けるもの: 設定の画面を全部、お題、記録（1 日の字数・続けた日数・1 分の字数）、速さの線。
 - [ ] 仕上げ: ヘルプの中身、パレットのコマンド、TESTING.md の行、README、アイコン。
 
@@ -44,4 +44,4 @@
 ## ito に頼んでいるもの（0.4.0 から。来るまで ito-prefs の今あるもので代える）
 
 - [ ] [uchmk/ito#43](https://github.com/uchmk/ito/issues/43) 区切りのボタン（seg） → 清書の道具の列（紙・向き・マス・1 行）。今は `ito_prefs::select`。
-- [ ] [uchmk/ito#44](https://github.com/uchmk/ito/issues/44) 塗ったボタン（primary・danger） → 清書の帯の「続きを書く」と、聞くときの「消して新しく書く」。今は `ito_prefs::button`。
+- [ ] [uchmk/ito#44](https://github.com/uchmk/ito/issues/44) 塗ったボタン（primary・danger） → 清書の帯の「続きを書く」。今は `ito_prefs::button`。

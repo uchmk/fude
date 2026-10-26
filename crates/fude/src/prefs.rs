@@ -1,13 +1,16 @@
 //! What the settings screen reads and writes (ito's `docs/common-spec.md`):
 //! common.toml (the language, the scale, the theme and the clock, shared by
 //! every uchmk app), the user's themes, fude's keymap.toml and its own
-//! config.toml. The files are
-//! watched every 2 s and written on threads of their own; what was read
-//! comes back as a [`Reload`], which [`Prefs::pump`] folds in. The UI thread
-//! never touches the disk.
+//! config.toml, and the open notebook's own settings in its `fude.toml`
+//! (over config.toml's `[note]`). The files are watched every 2 s and
+//! written on threads of their own; what was read comes back as a
+//! [`Reload`], which [`Prefs::pump`] folds in. The UI thread never touches
+//! the disk.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 use std::time::Duration;
 
 use ito_common::{common_path, edit_common, themes_dir, write_atomic, Common, CommonChange};
@@ -15,6 +18,7 @@ use ito_prefs::State;
 use ito_theme::Theme;
 
 use crate::config::{self, Config};
+use crate::notebook;
 
 /// How often the files are looked at.
 const WATCH: Duration = Duration::from_secs(2);
@@ -27,7 +31,18 @@ pub enum Reload {
     /// be read.
     Keymap(Result<Option<String>, String>),
     Config(Result<(Config, Vec<String>), String>),
+    /// A notebook's `fude.toml` (its path) and the `[note]` read from it.
+    Note(PathBuf, Result<toml::Table, String>),
     Failed(String),
+}
+
+/// The open notebook's own settings.
+struct NoteFile {
+    /// Its `fude.toml`.
+    path: PathBuf,
+    /// `[note]` as last read, and why the file could not be read since.
+    table: toml::Table,
+    err: Option<String>,
 }
 
 /// keymap.toml in `base`'s `fude` folder.
@@ -99,9 +114,16 @@ pub struct Prefs {
     pub keymap_new: Option<Option<String>>,
     /// The Keys page's search and the keys it is taking.
     pub keys_edit: ito_prefs::KeysEdit,
-    /// config.toml, and what in it was not understood.
+    /// What is in force: config.toml with the notebook's own settings over
+    /// it, and what in either was not understood.
     pub config: Config,
     pub config_warn: Vec<String>,
+    /// config.toml alone.
+    global: Config,
+    global_warn: Vec<String>,
+    note: Option<NoteFile>,
+    /// Bumped when another notebook is opened: the old one's watcher stops.
+    note_gen: Arc<AtomicU64>,
     /// The Writing page's number fields while they are typed in.
     pub drafts: ito_prefs::Drafts,
     tx: Sender<Reload>,
@@ -134,6 +156,10 @@ impl Prefs {
             keys_edit: ito_prefs::KeysEdit::default(),
             config: Config::default(),
             config_warn: Vec::new(),
+            global: Config::default(),
+            global_warn: Vec::new(),
+            note: None,
+            note_gen: Arc::new(AtomicU64::new(0)),
             drafts: ito_prefs::Drafts::new(),
             tx,
             rx,
@@ -160,9 +186,10 @@ impl Prefs {
                 Err(e) => p.keymap_new = Some(Some(e)),
             }
             match config::read(&config::path(b)) {
-                Ok((c, w)) => (p.config, p.config_warn) = (c, w),
-                Err(e) => p.config_warn = vec![e],
+                Ok((c, w)) => (p.global, p.global_warn) = (c, w),
+                Err(e) => p.global_warn = vec![e],
             }
+            p.overlay();
         }
         p.base = base;
         p
@@ -202,6 +229,55 @@ impl Prefs {
             ctx.request_repaint();
             sent
         });
+        self.watch_note();
+    }
+
+    /// The notebook whose `fude.toml` is at `path` (none: a notebook kept in
+    /// memory), with `[note]` as read from it, in force from now on and its
+    /// file watched.
+    pub fn set_note(&mut self, path: Option<PathBuf>, read: Result<toml::Table, String>) {
+        self.note_gen.fetch_add(1, Ordering::Relaxed);
+        self.note = path.map(|path| {
+            let (table, err) = match read {
+                Ok(t) => (t, None),
+                Err(e) => (toml::Table::new(), Some(e)),
+            };
+            NoteFile { path, table, err }
+        });
+        self.overlay();
+        self.watch_note();
+    }
+
+    /// The open notebook's own settings as they are in force (empty for one
+    /// kept in memory).
+    pub fn note_table(&self) -> toml::Table {
+        self.note.as_ref().map(|n| n.table.clone()).unwrap_or_default()
+    }
+
+    /// Watch the open notebook's `fude.toml` until another is opened (once
+    /// [`Prefs::watch`] has been called).
+    fn watch_note(&self) {
+        let (Some(ctx), Some(note)) = (self.wake.clone(), &self.note) else { return };
+        let (tx, path, gen) = (self.tx.clone(), note.path.clone(), self.note_gen.clone());
+        let mine = gen.load(Ordering::Relaxed);
+        ito_common::watch(vec![path.clone()], WATCH, move |_| {
+            if gen.load(Ordering::Relaxed) != mine {
+                return false;
+            }
+            let read = notebook::read_table(path.parent().unwrap_or(Path::new(".")));
+            let sent = tx.send(Reload::Note(path.clone(), read)).is_ok();
+            ctx.request_repaint();
+            sent
+        });
+    }
+
+    /// config.toml with the notebook's own settings over it.
+    fn overlay(&mut self) {
+        let empty = toml::Table::new();
+        let table = self.note.as_ref().map_or(&empty, |n| &n.table);
+        let (c, w) = config::overlay(&self.global, table);
+        self.config = c;
+        self.config_warn = self.global_warn.iter().cloned().chain(w).chain(self.note.as_ref().and_then(|n| n.err.clone())).collect();
     }
 
     /// Fold in what the threads have read since the last frame.
@@ -226,9 +302,25 @@ impl Prefs {
                     self.keymap = t;
                     self.keymap_new = Some(None);
                 }
-                Reload::Config(Ok((c, w))) => (self.config, self.config_warn) = (c, w),
+                Reload::Config(Ok((c, w))) => {
+                    (self.global, self.global_warn) = (c, w);
+                    self.overlay();
+                }
                 // Unreadable: the settings stay as they are.
-                Reload::Config(Err(e)) => self.config_warn = vec![e],
+                Reload::Config(Err(e)) => {
+                    self.global_warn = vec![e];
+                    self.overlay();
+                }
+                // Another notebook's, read before it was left: dropped.
+                Reload::Note(path, read) => {
+                    if let Some(n) = self.note.as_mut().filter(|n| n.path == path) {
+                        match read {
+                            Ok(t) => (n.table, n.err) = (t, None),
+                            Err(e) => n.err = Some(e),
+                        }
+                        self.overlay();
+                    }
+                }
                 Reload::Failed(e) => {
                     self.scale_wanted = None;
                     self.failed = Some(e);
@@ -313,13 +405,30 @@ impl Prefs {
         });
     }
 
-    /// `table.key = value` in force at once, and into config.toml on a
-    /// thread, which then reads it again. With no folder it stays in memory.
+    /// `table.key = value` in force at once, and into its file on a thread,
+    /// which then reads it again: `[note]` into the open notebook's
+    /// `fude.toml`, the rest into config.toml. With no folder it stays in
+    /// memory.
     pub fn config_change(&mut self, table: &'static str, key: &'static str, value: toml::Value, no_folder: &str) {
-        if let Err(e) = self.config.apply(table, key, &value) {
-            self.config_warn = vec![format!("config.toml: {table}.{key}: {e}")];
-        }
         let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        if let Some(note) = self.note.as_mut().filter(|_| table == "note") {
+            note.table.insert(key.into(), value.clone());
+            let path = note.path.clone();
+            self.overlay();
+            std::thread::spawn(move || {
+                let _one = notebook::TOML_ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+                let r = match config::write(&path, table, key, &value) {
+                    Ok(()) => Reload::Note(path.clone(), notebook::read_table(path.parent().unwrap_or(Path::new(".")))),
+                    Err(e) => Reload::Failed(e),
+                };
+                Self::send_back(&tx, &wake, r);
+            });
+            return;
+        }
+        if let Err(e) = self.global.apply(table, key, &value) {
+            self.global_warn = vec![format!("config.toml: {table}.{key}: {e}")];
+        }
+        self.overlay();
         let Some(base) = self.base.clone() else {
             Self::send_back(&tx, &wake, Reload::Failed(no_folder.into()));
             return;

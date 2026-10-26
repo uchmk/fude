@@ -224,6 +224,19 @@ impl Config {
     }
 }
 
+/// `global` with a notebook's own settings (`[note]` in its `fude.toml`)
+/// over it, and what in them was not understood.
+pub fn overlay(global: &Config, note: &toml::Table) -> (Config, Vec<String>) {
+    let mut c = *global;
+    let mut warn = Vec::new();
+    for (key, value) in note {
+        if let Err(e) = c.apply("note", key, value) {
+            warn.push(format!("{}: note.{key}: {e}", crate::notebook::FILE));
+        }
+    }
+    (c, warn)
+}
+
 /// `value` as TOML text, for `set_key`.
 pub fn toml_text(value: &toml::Value) -> String {
     match value {
@@ -296,6 +309,30 @@ wrap = 30
         assert!(said("font_size", "120 is used") && said("point", "\"start\"") && said("colour", "not a setting"), "{warn:?}");
         assert!(parse("[write").is_err());
         assert_eq!(parse("size = 3").unwrap().1.len(), 1);
+    }
+
+    #[test]
+    fn a_notebook_s_own_settings_go_over_the_rest() {
+        let (global, _) = parse(
+            "[write]
+font_size = 50
+[note]
+paper = \"genko\"
+char_limit = 400
+",
+        )
+        .unwrap();
+        let note: toml::Table = "paper = \"ruled\"
+font_size = 60
+cols = 3
+"
+        .parse()
+        .unwrap();
+        let (c, warn) = overlay(&global, &note);
+        assert_eq!((c.font_size, c.paper, c.char_limit, c.cols), (50, Paper::Ruled, 400, 5));
+        assert_eq!(warn.len(), 2, "{warn:?}");
+        assert!(warn.iter().all(|w| w.starts_with("fude.toml: note.")), "{warn:?}");
+        assert_eq!(overlay(&global, &toml::Table::new()), (global, vec![]));
     }
 
     #[test]

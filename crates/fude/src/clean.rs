@@ -1,7 +1,8 @@
 //! The clean copy, which Esc on the writing opens: what was written, set on
 //! its paper, under a banner that says why it is shown and a row that
 //! changes the paper. Enter or a letter writes on, a click on a letter puts
-//! the cursor there, and Ctrl+N starts anew after asking. The mock's `#clean`.
+//! the cursor there, Ctrl+N starts a new piece, Ctrl+S binds this one and
+//! ←→ turn to the pieces around it. The mock's `#clean`.
 
 use std::time::Instant;
 
@@ -15,7 +16,7 @@ use crate::draw::{self, Drawn, Sheet};
 use crate::{layout, write, App, Screen};
 
 /// How long the tools row says what a copy did, in seconds.
-const SAID: f64 = 2.5;
+pub const SAID: f64 = 2.5;
 
 /// The letters to a line the tools row offers on a sheet; 0 follows the
 /// window.
@@ -24,19 +25,17 @@ const WRAPS: [u32; 4] = [0, 20, 30, 40];
 /// The grids the tools row offers: letters to a line, lines to a sheet.
 const GRIDS: [(u32, u32); 2] = [(20, 20), (20, 10)];
 
-/// The clean copy's own state: the paper as the tools row set it, and the
-/// question before starting anew.
+/// The clean copy's own state: the paper as the tools row set it, and what
+/// the tools row says.
 pub struct Clean {
     pub sheet: Sheet,
-    /// "Wipe what was written?" is asked in the banner.
-    pub asking: bool,
     /// The tools row changed the paper; it stays so while the settings do.
     tweaked: bool,
     /// The next draw scrolls to where the text begins.
     fresh: bool,
     /// What the tools row says in place of the counts, and until when (in
     /// egui's time).
-    said: Option<(String, f64)>,
+    pub said: Option<(String, f64)>,
     /// The counts the last draw came to.
     last: Drawn,
     /// The settings the paper was chosen from.
@@ -52,15 +51,7 @@ impl Default for Clean {
 impl Clean {
     /// The clean copy of `text` on the paper the settings choose.
     pub fn open(config: &Config, text: &str) -> Clean {
-        Clean {
-            sheet: Sheet::choose(config, text),
-            asking: false,
-            tweaked: false,
-            fresh: true,
-            said: None,
-            last: Drawn::default(),
-            seen: *config,
-        }
+        Clean { sheet: Sheet::choose(config, text), tweaked: false, fresh: true, said: None, last: Drawn::default(), seen: *config }
     }
 
     /// The tools row or the palette put the copy on `sheet`; it stays on it
@@ -78,7 +69,7 @@ impl App {
     pub fn open_clean(&mut self) {
         let config = self.prefs.config;
         if self.clean.tweaked && self.clean.seen == config {
-            (self.clean.asking, self.clean.fresh, self.clean.said) = (false, true, None);
+            (self.clean.fresh, self.clean.said) = (true, None);
         } else {
             self.clean = Clean::open(&config, &self.band.text());
         }
@@ -89,33 +80,7 @@ impl App {
     /// as the settings say), so its banner does not come straight back.
     pub fn write_on(&mut self) {
         self.band.go_on(Instant::now(), self.prefs.config.on_continue == OnContinue::Free);
-        self.clean.asking = false;
         self.screen = Screen::Write;
-    }
-
-    /// A new piece: nothing written and the clock at zero, on the writing.
-    /// The emptied draft is written at once.
-    pub fn start_anew(&mut self, time: f64) {
-        self.band.reset();
-        self.preedit.clear();
-        self.clean.asking = false;
-        self.draft_due = Some(time);
-        // The clock starts again as the band comes back on the screen.
-        self.on_band = false;
-        self.screen = Screen::Write;
-    }
-
-    /// Ctrl+N: the clean copy asks before what was written goes; with
-    /// nothing written there is nothing to ask.
-    pub fn ask_anew(&mut self, time: f64) {
-        if self.band.text().is_empty() {
-            self.start_anew(time);
-            return;
-        }
-        if self.screen != Screen::Clean {
-            self.open_clean();
-        }
-        self.clean.asking = true;
     }
 
     /// Ctrl+C: the text as the clean copy has it, paragraphs opened with a
@@ -141,7 +106,9 @@ impl App {
     /// The keys of the clean copy, read before anything else sees them. On
     /// the writing, Esc opens it; on it, Esc or Enter writes on, a letter
     /// writes on and goes onto the band in the same frame, Ctrl+C copies and
-    /// Ctrl+N asks before starting anew. While it asks, Esc only answers no.
+    /// ←→ turn to the pieces around it (← is the newer one on a vertical
+    /// sheet, which is read right to left). On both, Ctrl+N starts a new
+    /// piece and Ctrl+S binds this one.
     pub fn clean_keys(&mut self, ctx: &egui::Context, time: f64) {
         if self.palette.is_some() || self.bell_open || self.prefs.keys_edit.busy() || egui::Popup::is_any_open(ctx) {
             return;
@@ -152,12 +119,9 @@ impl App {
                 if key(Modifiers::NONE, Key::Escape) {
                     self.open_clean();
                 } else if key(Modifiers::COMMAND, Key::N) {
-                    self.ask_anew(time);
-                }
-            }
-            Screen::Clean if self.clean.asking => {
-                if key(Modifiers::NONE, Key::Escape) {
-                    self.clean.asking = false;
+                    self.new_piece(time);
+                } else if key(Modifiers::COMMAND, Key::S) {
+                    self.save_piece(time);
                 }
             }
             Screen::Clean => {
@@ -170,8 +134,15 @@ impl App {
                 if copy {
                     self.copy(ctx, time);
                 }
+                let newer = if self.clean.sheet.dir == Dir::Vertical { -1 } else { 1 };
                 if key(Modifiers::COMMAND, Key::N) {
-                    self.ask_anew(time);
+                    self.new_piece(time);
+                } else if key(Modifiers::COMMAND, Key::S) {
+                    self.save_piece(time);
+                } else if key(Modifiers::NONE, Key::ArrowRight) {
+                    self.flip_piece(newer, time);
+                } else if key(Modifiers::NONE, Key::ArrowLeft) {
+                    self.flip_piece(-newer, time);
                 } else if key(Modifiers::NONE, Key::Escape) || key(Modifiers::NONE, Key::Enter) {
                     self.write_on();
                 } else if ctx.input(|i| i.events.iter().any(writes)) {
@@ -179,7 +150,7 @@ impl App {
                     self.write_on();
                 }
             }
-            Screen::Settings | Screen::Help => {}
+            Screen::Settings | Screen::Help | Screen::Shelf => {}
         }
     }
 }
@@ -202,7 +173,7 @@ pub fn show(ui: &mut Ui, app: &mut App, under: bool) {
     let config = app.prefs.config;
     let text = app.band.text();
     if config != app.clean.seen {
-        app.clean = Clean { asking: app.clean.asking, ..Clean::open(&config, &text) };
+        app.clean = Clean::open(&config, &text);
     }
     if under {
         ui.disable();
@@ -215,9 +186,7 @@ pub fn show(ui: &mut Ui, app: &mut App, under: bool) {
     if let Some(go) = banner(ui, app, l) {
         match go {
             Go::WriteOn => app.write_on(),
-            Go::Ask => app.ask_anew(time),
-            Go::Wipe => app.start_anew(time),
-            Go::Cancel => app.clean.asking = false,
+            Go::New => app.new_piece(time),
         }
     }
     if tools(ui, app, l, time) {
@@ -232,7 +201,7 @@ pub fn show(ui: &mut Ui, app: &mut App, under: bool) {
         app.clean.last = counts;
         ctx.request_repaint();
     }
-    if let Some(i) = drawn.clicked.filter(|_| app.screen == Screen::Clean && !app.clean.asking) {
+    if let Some(i) = drawn.clicked.filter(|_| app.screen == Screen::Clean) {
         app.band.set_cursor(i);
         app.write_on();
     }
@@ -241,13 +210,11 @@ pub fn show(ui: &mut Ui, app: &mut App, under: bool) {
 /// What the banner's buttons ask for.
 enum Go {
     WriteOn,
-    Ask,
-    Wipe,
-    Cancel,
+    New,
 }
 
-/// The band across the top that says why the clean copy is shown: the
-/// question before starting anew, a limit reached, or Esc.
+/// The band across the top that says why the clean copy is shown: a limit
+/// reached, or Esc.
 fn banner(ui: &mut Ui, app: &App, l: Look) -> Option<Go> {
     let ctx = ui.ctx().clone();
     let c = l.c;
@@ -256,9 +223,7 @@ fn banner(ui: &mut Ui, app: &App, l: Look) -> Option<Go> {
     let b = &app.band;
     let now = Instant::now();
     let count = b.count().to_string();
-    let (tint, dot, words, note) = if app.clean.asking {
-        (ito_theme::mix(c.panel, c.err, 0.12), c.err, t.trf("clean.ask", &[&count]), tr("clean.ask_note"))
-    } else if !b.hit().is_empty() {
+    let (tint, dot, words, note) = if !b.hit().is_empty() {
         let took = t.trf("clean.took", &[&band::fmt(b.elapsed(now), false), &count]);
         (ito_theme::mix(c.panel, c.wait, 0.11), c.wait, write::hit_words(b, t), format!("{took} {}", going_on(b, app, now)))
     } else {
@@ -271,20 +236,11 @@ fn banner(ui: &mut Ui, app: &App, l: Look) -> Option<Go> {
         let r = ui.max_rect();
         ui.painter().hline(r.x_range().expand(16.0), r.bottom() - 0.5, Stroke::new(1.0, c.border));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if app.clean.asking {
-                if keycap(ui, l, "Esc") | ito_prefs::button(ui, l, &tr("clean.cancel")) {
-                    go = Some(Go::Cancel);
-                }
-                if ito_prefs::button(ui, l, &tr("clean.wipe")) {
-                    go = Some(Go::Wipe);
-                }
-            } else {
-                if ito_prefs::button(ui, l, &tr("clean.anew")) {
-                    go = Some(Go::Ask);
-                }
-                if keycap(ui, l, "Esc") | ito_prefs::button(ui, l, &tr("clean.go_on")) {
-                    go = Some(Go::WriteOn);
-                }
+            if ito_prefs::button(ui, l, &tr("clean.anew")) {
+                go = Some(Go::New);
+            }
+            if keycap(ui, l, "Esc") | ito_prefs::button(ui, l, &tr("clean.go_on")) {
+                go = Some(Go::WriteOn);
             }
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 let (dot_at, _) = ui.allocate_exact_size(vec2(14.0, h), Sense::hover());

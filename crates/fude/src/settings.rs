@@ -1,10 +1,11 @@
 //! The settings screen (Ctrl+,): `ito-prefs` draws the nav and the cards,
 //! and the rows common to every uchmk app (the language, the scale, the
 //! theme) write common.toml. The Writing page is fude's own, written to
-//! config.toml: the limits, the clock and the band, in force at once. So is
-//! the Clean copy page: the paper the clean copy opens on, the grid and how
-//! a line of it is filled. fude's keys are on the Keys page, written to
-//! keymap.toml.
+//! config.toml: the clock and the band, the same in every notebook and in
+//! force at once. The This notebook page is the open notebook's, written to
+//! the fude.toml in its folder: the limits, no erasing, the paper its clean
+//! copy opens on, the grid and how a line of it is filled. fude's keys are
+//! on the Keys page, written to keymap.toml.
 
 use egui::{vec2, FontId, Sense, Stroke, StrokeKind, Ui};
 use ito_common::{themes_dir, CommonChange};
@@ -18,31 +19,33 @@ use crate::App;
 pub const GENERAL: usize = 0;
 pub const THEME: usize = 1;
 pub const WRITE: usize = 2;
-pub const CLEAN: usize = 3;
+pub const NOTE: usize = 3;
 pub const KEYS: usize = 4;
 pub const ADVANCED: usize = 5;
 pub const ABOUT: usize = 6;
 
 /// The pages fude has besides General and About, which every app has.
-/// `App` is the Writing page and the Clean copy page.
+/// `App` is the Writing page and the This notebook page.
 const HAS: [Page; 4] = [Page::Theme, Page::App, Page::Keys, Page::Advanced];
 
 /// The Writing page's keys in config.toml, which the search finds too.
-const WRITE_KEYS: [&str; 9] = [
+const WRITE_KEYS: [&str; 6] = ["write.time_start", "write.on_continue", "write.show", "write.point", "write.dir", "write.font_size"];
+
+/// The This notebook page's keys in fude.toml.
+const NOTE_KEYS: [&str; 12] = [
     "note.char_limit",
     "note.time_limit",
     "note.no_erase",
-    "write.time_start",
-    "write.on_continue",
-    "write.show",
-    "write.point",
-    "write.dir",
-    "write.font_size",
+    "note.paper",
+    "note.dir",
+    "note.rule",
+    "note.cols",
+    "note.rows",
+    "note.indent",
+    "note.hang",
+    "note.merge",
+    "note.wrap",
 ];
-
-/// The Clean copy page's keys in config.toml.
-const CLEAN_KEYS: [&str; 9] =
-    ["note.paper", "note.dir", "note.rule", "note.cols", "note.rows", "note.indent", "note.hang", "note.merge", "note.wrap"];
 
 /// What a page of fude's asks for: `table.key` in config.toml, and its value.
 type ConfigChange = (&'static str, toml::Value);
@@ -68,10 +71,6 @@ fn index<'a>(w: &'static Words, more: &'static MoreWords, kw: &'static KeyWords,
         (KEYS, "prepend_keymap"),
         (KEYS, tr("keys.app")),
         (WRITE, "config.toml"),
-        (WRITE, tr("settings.limits")),
-        (WRITE, tr("settings.char_limit")),
-        (WRITE, tr("settings.time_limit")),
-        (WRITE, tr("settings.no_erase")),
         (WRITE, tr("settings.time")),
         (WRITE, tr("settings.time_start")),
         (WRITE, tr("settings.on_continue")),
@@ -80,21 +79,26 @@ fn index<'a>(w: &'static Words, more: &'static MoreWords, kw: &'static KeyWords,
         (WRITE, tr("settings.point")),
         (WRITE, tr("settings.dir")),
         (WRITE, tr("settings.font_size")),
-        (CLEAN, tr("settings.opened")),
-        (CLEAN, tr("settings.paper")),
-        (CLEAN, tr("settings.paper_dir")),
-        (CLEAN, tr("settings.rule")),
-        (CLEAN, tr("settings.genko")),
-        (CLEAN, tr("settings.grid")),
-        (CLEAN, tr("settings.indent")),
-        (CLEAN, tr("settings.hang")),
-        (CLEAN, tr("settings.merge")),
-        (CLEAN, tr("settings.sheet")),
-        (CLEAN, tr("settings.wrap")),
+        (NOTE, "fude.toml"),
+        (NOTE, tr("settings.limits")),
+        (NOTE, tr("settings.char_limit")),
+        (NOTE, tr("settings.time_limit")),
+        (NOTE, tr("settings.no_erase")),
+        (NOTE, tr("settings.opened")),
+        (NOTE, tr("settings.paper")),
+        (NOTE, tr("settings.paper_dir")),
+        (NOTE, tr("settings.rule")),
+        (NOTE, tr("settings.genko")),
+        (NOTE, tr("settings.grid")),
+        (NOTE, tr("settings.indent")),
+        (NOTE, tr("settings.hang")),
+        (NOTE, tr("settings.merge")),
+        (NOTE, tr("settings.sheet")),
+        (NOTE, tr("settings.wrap")),
     ]
     .into_iter()
     .chain(WRITE_KEYS.map(|k| (WRITE, k)))
-    .chain(CLEAN_KEYS.map(|k| (CLEAN, k)))
+    .chain(NOTE_KEYS.map(|k| (NOTE, k)))
     .chain(ito_prefs::keys_index(kw).into_iter().map(|t| (KEYS, t)))
     .chain(ito_prefs::advanced_index(more).into_iter().map(|t| (ADVANCED, t)))
     .chain(ito_prefs::about_index(more, w).into_iter().map(|t| (ABOUT, t)))
@@ -111,10 +115,13 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     let keys = if others { ito_prefs::Keys::default() } else { ito_prefs::Keys::standard(ui, false) };
     let t = &app.table;
     let tr = |k: &'static str| t.tr(k);
+    // The notebook's page is led by its name.
+    let name = if app.note.is_empty() { tr("note.default") } else { app.note.as_str() };
+    let note_lead = t.trf("settings.clean_lead", &[name]);
     let pages: Vec<_> = ito_prefs::default_order(&HAS)
         .into_iter()
         .flat_map(|p| match p {
-            Page::App => vec![(tr("settings.write"), tr("settings.write_lead")), (tr("settings.clean"), tr("settings.clean_lead"))],
+            Page::App => vec![(tr("settings.write"), tr("settings.write_lead")), (tr("settings.clean"), note_lead.as_str())],
             _ => vec![p.words(more)],
         })
         .collect();
@@ -138,8 +145,8 @@ pub fn show(ui: &mut Ui, app: &mut App) {
             ito_prefs::sep(ui, l);
             asked.extend(ito_prefs::scale_row(ui, l, w, common.scale_or_one(), ""));
         }),
-        WRITE => config_asked = write_page(ui, l, t, config, drafts),
-        CLEAN => config_asked = clean_page(ui, l, t, config),
+        WRITE => config_asked = write_page(ui, l, t, config),
+        NOTE => config_asked = note_page(ui, l, t, config, drafts),
         THEME => {
             let (choice, dark, light) = common.theme_choice(None);
             let note = match base {
@@ -217,41 +224,12 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     }
 }
 
-/// The Writing page: the limits, the clock and the band. What it asks for
-/// goes into config.toml.
-fn write_page(ui: &mut Ui, l: Look, t: &Table, c: Config, drafts: &mut Drafts) -> Vec<ConfigChange> {
+/// The Writing page: the clock and the band, the same in every notebook.
+/// What it asks for goes into config.toml.
+fn write_page(ui: &mut Ui, l: Look, t: &Table, c: Config) -> Vec<ConfigChange> {
     let tr = |k: &'static str| t.tr(k);
-    let trf = |k: &'static str, n: u32| t.trf(k, &[&n.to_string()]);
     let word = |w: &str| toml::Value::String(w.into());
     let mut asked: Vec<ConfigChange> = Vec::new();
-    section(ui, l, tr("settings.limits"), |ui| {
-        let chars = [0, 100, 200, 400, 800, 1200].map(|n| {
-            let w = match n {
-                0 => tr("settings.none").to_owned(),
-                400 => trf("settings.chars_sheet", n),
-                _ => trf("settings.chars_n", n),
-            };
-            (n, w)
-        });
-        let words = [tr("settings.char_limit"), tr("settings.char_limit_note"), tr("settings.unit_chars"), tr("settings.custom")];
-        if let Some(n) = limit_row(ui, l, drafts, "note.char_limit", words, c.char_limit, config::CHAR_LIMIT, &chars) {
-            asked.push(("note.char_limit", n.into()));
-        }
-        sep(ui, l);
-        let minutes =
-            [0, 1, 3, 5, 10, 15, 30].map(|n| (n, if n == 0 { tr("settings.none").to_owned() } else { trf("settings.minutes_n", n) }));
-        let words = [tr("settings.time_limit"), tr("settings.time_limit_note"), tr("settings.unit_minutes"), tr("settings.custom")];
-        if let Some(n) = limit_row(ui, l, drafts, "note.time_limit", words, c.time_limit, config::TIME_LIMIT, &minutes) {
-            asked.push(("note.time_limit", n.into()));
-        }
-        sep(ui, l);
-        let flip = keyed_row(ui, l, "note.no_erase", tr("settings.no_erase"), tr("settings.no_erase_note"), |ui| {
-            ito_prefs::switch(ui, l, c.no_erase)
-        });
-        if flip {
-            asked.push(("note.no_erase", (!c.no_erase).into()));
-        }
-    });
     section(ui, l, tr("settings.time"), |ui| {
         let starts = [(TimeStart::First, tr("settings.time_start_first")), (TimeStart::Open, tr("settings.time_start_open"))];
         let words = (tr("settings.time_start"), tr("settings.time_start_note"));
@@ -306,12 +284,42 @@ fn write_page(ui: &mut Ui, l: Look, t: &Table, c: Config, drafts: &mut Drafts) -
     asked
 }
 
-/// The Clean copy page: the paper it opens on, the grid, and the sheets
-/// that are not a grid. What it asks for goes into config.toml.
-fn clean_page(ui: &mut Ui, l: Look, t: &Table, c: Config) -> Vec<ConfigChange> {
+/// The This notebook page: the limits, no erasing, the paper the clean
+/// copy opens on, the grid, and the sheets that are not a grid. What it asks
+/// for goes into the notebook's fude.toml (config.toml when none is open).
+fn note_page(ui: &mut Ui, l: Look, t: &Table, c: Config, drafts: &mut Drafts) -> Vec<ConfigChange> {
     let tr = |k: &'static str| t.tr(k);
+    let trf = |k: &'static str, n: u32| t.trf(k, &[&n.to_string()]);
     let word = |w: &str| toml::Value::String(w.into());
     let mut asked: Vec<ConfigChange> = Vec::new();
+    section(ui, l, tr("settings.limits"), |ui| {
+        let chars = [0, 100, 200, 400, 800, 1200].map(|n| {
+            let w = match n {
+                0 => tr("settings.none").to_owned(),
+                400 => trf("settings.chars_sheet", n),
+                _ => trf("settings.chars_n", n),
+            };
+            (n, w)
+        });
+        let words = [tr("settings.char_limit"), tr("settings.char_limit_note"), tr("settings.unit_chars"), tr("settings.custom")];
+        if let Some(n) = limit_row(ui, l, drafts, "note.char_limit", words, c.char_limit, config::CHAR_LIMIT, &chars) {
+            asked.push(("note.char_limit", n.into()));
+        }
+        sep(ui, l);
+        let minutes =
+            [0, 1, 3, 5, 10, 15, 30].map(|n| (n, if n == 0 { tr("settings.none").to_owned() } else { trf("settings.minutes_n", n) }));
+        let words = [tr("settings.time_limit"), tr("settings.time_limit_note"), tr("settings.unit_minutes"), tr("settings.custom")];
+        if let Some(n) = limit_row(ui, l, drafts, "note.time_limit", words, c.time_limit, config::TIME_LIMIT, &minutes) {
+            asked.push(("note.time_limit", n.into()));
+        }
+        sep(ui, l);
+        let flip = keyed_row(ui, l, "note.no_erase", tr("settings.no_erase"), tr("settings.no_erase_note"), |ui| {
+            ito_prefs::switch(ui, l, c.no_erase)
+        });
+        if flip {
+            asked.push(("note.no_erase", (!c.no_erase).into()));
+        }
+    });
     section(ui, l, tr("settings.opened"), |ui| {
         let papers = [
             (Paper::Auto, tr("settings.paper_auto")),
@@ -466,7 +474,7 @@ mod tests {
 
     #[test]
     fn pages_follow_ito_default_order() {
-        assert_eq!([GENERAL, THEME, WRITE, CLEAN, KEYS, ADVANCED, ABOUT], [0, 1, 2, 3, 4, 5, 6]);
+        assert_eq!([GENERAL, THEME, WRITE, NOTE, KEYS, ADVANCED, ABOUT], [0, 1, 2, 3, 4, 5, 6]);
         let order = [Page::General, Page::Theme, Page::App, Page::Keys, Page::Advanced, Page::About];
         assert_eq!(ito_prefs::default_order(&HAS), order);
     }
@@ -554,14 +562,15 @@ mod tests {
             assert!(idx.iter().any(|(p, s)| *p == KEYS && *s == "keymap.toml"));
             assert!(idx.iter().any(|(p, s)| *p == KEYS && *s == t.tr("keys.app")), "{lang}");
             assert!(idx.iter().any(|(p, s)| *p == ABOUT && !s.is_empty()));
-            assert!(idx.iter().any(|(p, s)| *p == WRITE && *s == t.tr("settings.char_limit")), "{lang}");
-            assert!(idx.iter().any(|(p, s)| *p == CLEAN && *s == t.tr("settings.paper")), "{lang}");
-            assert!(idx.iter().any(|(p, s)| *p == CLEAN && *s == "note.paper"), "{lang}");
+            assert!(idx.iter().any(|(p, s)| *p == WRITE && *s == t.tr("settings.font_size")), "{lang}");
+            assert!(idx.iter().any(|(p, s)| *p == NOTE && *s == t.tr("settings.char_limit")), "{lang}");
+            assert!(idx.iter().any(|(p, s)| *p == NOTE && *s == t.tr("settings.paper")), "{lang}");
+            assert!(idx.iter().any(|(p, s)| *p == NOTE && *s == "note.paper"), "{lang}");
         }
     }
 
-    /// Every key on the Writing and the Clean copy pages is one config.toml
-    /// takes, so the search finds the rows by what the file calls them.
+    /// Every key on the Writing and the This notebook pages is one the
+    /// files take, so the search finds the rows by what the file calls them.
     #[test]
     fn the_page_keys_are_settings() {
         let mut c = Config::default();
@@ -570,16 +579,16 @@ mod tests {
             "note.char_limit" | "note.time_limit" | "write.font_size" | "note.cols" | "note.rows" | "note.wrap" => toml::Value::Integer(20),
             _ => toml::Value::String(String::new()),
         };
-        for k in WRITE_KEYS.into_iter().chain(CLEAN_KEYS) {
+        for k in WRITE_KEYS.into_iter().chain(NOTE_KEYS) {
             let (table, key) = k.split_once('.').unwrap();
             let r = c.apply(table, key, &value(k));
             assert!(r.as_ref().map_or_else(|e| !e.contains("not a setting"), |_| true), "{k}: {r:?}");
         }
     }
 
-    /// The Writing page draws in both languages, a limit not among the
-    /// presets included; a change is in force at once and written to
-    /// config.toml.
+    /// The Writing and the This notebook pages draw in both languages, a
+    /// limit not among the presets included; a change is in force at once
+    /// and written to config.toml when no notebook is open.
     #[test]
     fn the_writing_page_draws_and_a_change_is_written() {
         for lang in ["en", "ja"] {
@@ -589,7 +598,7 @@ mod tests {
             (a.prefs.config.cols, a.prefs.config.rows, a.prefs.config.wrap) = (24, 12, 33);
             a.screen = Screen::Settings;
             let ctx = egui::Context::default();
-            for page in [WRITE, CLEAN] {
+            for page in [WRITE, NOTE] {
                 a.prefs.state.page = page;
                 for _ in 0..2 {
                     let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {

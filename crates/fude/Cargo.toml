@@ -60,6 +60,8 @@ egui = "0.36"
 # The draft and config.toml, read into structs.
 serde = { version = "1", features = ["derive"] }
 toml = "1.1"
+# A piece's file is named by the local time it was begun.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]
 # TESTING.md -> the lanes' check tables (examples/make-testcheck.rs).
