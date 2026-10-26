@@ -122,6 +122,8 @@ pub struct Prefs {
     global: Config,
     global_warn: Vec<String>,
     note: Option<NoteFile>,
+    /// The topics of a notebook kept in memory (one with no `fude.toml`).
+    loose_topics: Vec<String>,
     /// Bumped when another notebook is opened: the old one's watcher stops.
     note_gen: Arc<AtomicU64>,
     /// The Writing page's number fields while they are typed in.
@@ -159,6 +161,7 @@ impl Prefs {
             global: Config::default(),
             global_warn: Vec::new(),
             note: None,
+            loose_topics: Vec::new(),
             note_gen: Arc::new(AtomicU64::new(0)),
             drafts: ito_prefs::Drafts::new(),
             tx,
@@ -252,6 +255,14 @@ impl Prefs {
     /// kept in memory).
     pub fn note_table(&self) -> toml::Table {
         self.note.as_ref().map(|n| n.table.clone()).unwrap_or_default()
+    }
+
+    /// The open notebook's topics.
+    pub fn topics(&self) -> Vec<String> {
+        match &self.note {
+            Some(n) => config::topics(&n.table),
+            None => self.loose_topics.clone(),
+        }
     }
 
     /// Watch the open notebook's `fude.toml` until another is opened (once
@@ -423,6 +434,10 @@ impl Prefs {
                 };
                 Self::send_back(&tx, &wake, r);
             });
+            return;
+        }
+        if (table, key) == ("note", "topics") {
+            self.loose_topics = config::topics(&toml::Table::from_iter([(key.to_owned(), value)]));
             return;
         }
         if let Err(e) = self.global.apply(table, key, &value) {

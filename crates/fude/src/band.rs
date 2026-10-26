@@ -68,6 +68,18 @@ fn minutes(m: u32) -> Duration {
     Duration::from_secs(u64::from(m) * 60)
 }
 
+/// The pace is taken every this long of the time counted: the letters there
+/// are then.
+pub const PACE: Duration = Duration::from_secs(5);
+
+/// The pace is taken for six hours at most.
+const PACE_MAX: usize = 4320;
+
+/// How many [`PACE`]s `d` holds.
+fn paces(d: Duration) -> usize {
+    ((d.as_millis() / PACE.as_millis()) as usize).min(PACE_MAX)
+}
+
 /// What a draft keeps of the band, and what it is made again from.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -84,6 +96,9 @@ pub struct Kept {
     pub add_ms: u64,
     /// Going on after a limit with none.
     pub free: bool,
+    /// The letters at the end of each [`PACE`] of the time counted.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub pace: Vec<u32>,
 }
 
 #[derive(Debug, Default)]
@@ -101,6 +116,11 @@ pub struct Band {
     add_chars: u32,
     add_time: Duration,
     free: bool,
+    /// The letters at the end of each [`PACE`] of the time counted, taken as
+    /// the time passes [`Band::take_pace`] by.
+    pace: Vec<u32>,
+    /// Begun before the pace was taken: none is taken of it.
+    paceless: bool,
     pub limits: Limits,
 }
 
@@ -172,8 +192,30 @@ impl Band {
         }
     }
 
+    /// The pace up to `now`: each [`PACE`] ended since it was last taken
+    /// gets the letters there are, so it is taken before every edit.
+    fn take_pace(&mut self, now: Instant) {
+        let due = paces(self.elapsed(now));
+        if !self.paceless && self.pace.len() < due {
+            let n = self.count() as u32;
+            self.pace.resize(due, n);
+        }
+    }
+
+    /// The pace up to `now` (see [`Kept::pace`]); empty for a piece begun
+    /// before it was taken.
+    pub fn pace(&self, now: Instant) -> Vec<u32> {
+        let mut p = self.pace.clone();
+        let due = paces(self.elapsed(now));
+        if !self.paceless && p.len() < due {
+            p.resize(due, self.count() as u32);
+        }
+        p
+    }
+
     /// The clock stands while the band is not on the screen.
     pub fn pause(&mut self, now: Instant) {
+        self.take_pace(now);
         if let Some(t) = self.since.take() {
             self.before += now.saturating_duration_since(t);
         }
@@ -199,6 +241,7 @@ impl Band {
         if no_erase && e.erases() {
             return false;
         }
+        self.take_pace(now);
         let n = self.text.len() as isize;
         let at = self.cursor() as isize;
         match e {
@@ -323,6 +366,7 @@ impl Band {
     /// The time limit, looked at while the clock runs: whether it was just
     /// reached.
     pub fn tick(&mut self, now: Instant) -> bool {
+        self.take_pace(now);
         let tc = self.time_cap();
         !tc.is_zero() && self.elapsed(now) >= tc && self.reach(Hit::Time)
     }
@@ -372,12 +416,14 @@ impl Band {
             add_chars: self.add_chars,
             add_ms: self.add_time.as_millis() as u64,
             free: self.free,
+            pace: self.pace(now),
         }
     }
 
     /// A band again from its draft, with the clock standing.
     pub fn from_kept(k: Kept, limits: Limits) -> Band {
         let text: Vec<char> = k.text.chars().collect();
+        let paceless = k.pace.is_empty() && paces(Duration::from_millis(k.elapsed_ms)) > 0;
         Band {
             back: k.back.min(text.len()),
             text,
@@ -388,6 +434,8 @@ impl Band {
             add_chars: k.add_chars,
             add_time: Duration::from_millis(k.add_ms),
             free: k.free,
+            pace: k.pace,
+            paceless,
             limits,
         }
     }
@@ -580,6 +628,35 @@ mod tests {
         // A draft from somewhere else does not put the cursor past the end.
         let k = Kept { text: "あ".into(), back: 9, ..Default::default() };
         assert_eq!(Band::from_kept(k, Limits::default()).cursor(), 0);
+    }
+
+    #[test]
+    fn the_pace_is_the_letters_every_five_seconds_of_the_time_counted() {
+        let (mut b, t0) = band(Limits::default());
+        let s = Duration::from_secs;
+        typed(&mut b, t0, "あい");
+        typed(&mut b, t0 + s(7), "う");
+        // 0:05 had 2; at 0:12 there were 3 by then.
+        b.edit(Edit::Backspace, t0 + s(12), false);
+        assert_eq!(b.pace(t0 + s(12)), [2, 3]);
+        b.pause(t0 + s(14));
+        // Off the band the time does not count.
+        assert_eq!(b.pace(t0 + s(100)), [2, 3]);
+        b.enter(t0 + s(100), false);
+        assert_eq!(b.pace(t0 + s(102)), [2, 3, 2]);
+        let k = b.kept(t0 + s(102));
+        assert_eq!(k.pace, [2, 3, 2]);
+        assert_eq!(Band::from_kept(k, Limits::default()).pace(t0), [2, 3, 2]);
+        // A piece timed before the pace was taken gets none.
+        let old = Band::from_kept(Kept { text: "前の".into(), started: true, elapsed_ms: 65_000, ..Kept::default() }, Limits::default());
+        assert!(old.pace(t0).is_empty());
+        let mut b = Band::from_kept(Kept { started: true, elapsed_ms: 4_000, ..Kept::default() }, Limits::default());
+        b.enter(t0, false);
+        typed(&mut b, t0 + s(2), "あ");
+        // The 4 seconds before count: at 0:05 there were none.
+        assert_eq!(b.pace(t0 + s(2)), [0]);
+        b.reset();
+        assert!(b.pace(t0 + s(9)).is_empty());
     }
 
     #[test]

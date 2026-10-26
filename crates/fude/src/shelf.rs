@@ -1,12 +1,12 @@
 //! The shelf (Ctrl+O): the notebooks down the left and the pieces of the one
 //! picked on the right, newest first. Enter opens a notebook, a piece's clean
 //! copy, or a new piece; N makes a notebook and F2 renames one. Also what
-//! fude keeps of the notebooks: the one written in, the piece on the band,
-//! and binding it into its file.
+//! fude keeps of the notebooks: the one written in, the piece on the band
+//! and its topic, and binding it into its file.
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{pos2, vec2, Color32, Event, FontId, Galley, Key, Modifiers, Rect, Response, Sense, Stroke, Ui, UiBuilder};
@@ -16,9 +16,9 @@ use ito_theme::Colors;
 use serde::{Deserialize, Serialize};
 
 use crate::band::{self, Band, Hit, Kept};
-use crate::config::OnContinue;
-use crate::notebook::{self, BadName, Done, Job, Note, Piece};
-use crate::{clean, App, Screen};
+use crate::config::{OnContinue, Topic};
+use crate::notebook::{self, BadName, Done, Job, Note, Piece, Record};
+use crate::{clean, stats, App, Screen};
 
 /// The notebooks' column, as wide as the settings' pages.
 const SIDE: f32 = 260.0;
@@ -31,14 +31,17 @@ const HOLD: f64 = 0.2;
 const NAME_FIELD: &str = "shelf-name";
 
 /// What draft.toml keeps: the notebook written in, the piece on the band
-/// (none until it has a letter), and the band. A draft from before there
-/// were notebooks is a bare band, and reads as one in no notebook.
+/// (none until it has a letter), its topic, and the band. A draft from
+/// before there were notebooks is a bare band, and reads as one in no
+/// notebook.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Draft {
     pub note: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub piece: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
     #[serde(flatten)]
     pub band: Kept,
 }
@@ -112,7 +115,7 @@ impl App {
 
     /// What draft.toml is to keep now.
     pub fn draft_now(&self) -> Draft {
-        Draft { note: self.note.clone(), piece: self.piece.clone(), band: self.band.kept(Instant::now()) }
+        Draft { note: self.note.clone(), piece: self.piece.clone(), topic: self.topic.clone(), band: self.band.kept(Instant::now()) }
     }
 
     /// At the start: the notebook and the piece of the draft, or else the
@@ -133,7 +136,9 @@ impl App {
             None => self.prefs.set_note(None, Ok(toml::Table::new())),
         }
         // A draft of another notebook goes on as a new piece in this one.
-        self.piece = draft.piece.filter(|_| asked.as_ref() == Some(&name));
+        let same = asked.as_ref() == Some(&name);
+        self.piece = draft.piece.filter(|_| same);
+        self.topic = draft.topic.filter(|_| same);
         self.band = Band::from_kept(draft.band, self.prefs.config.limits());
         self.note = name;
         if let Some(root) = self.root.clone() {
@@ -142,6 +147,37 @@ impl App {
             self.worker = Some(w);
         }
         self.ensure_note();
+        if self.topic.is_none() && self.piece.is_none() && self.band.count() == 0 {
+            self.choose_topic();
+        }
+    }
+
+    /// The topic of a new piece, from the notebook's list: the one after the
+    /// topic shown last (or else the newest piece's), or one by lot.
+    fn choose_topic(&mut self) {
+        let list = self.prefs.topics();
+        let i = self.ensure_note();
+        let last = self
+            .topic
+            .take()
+            .filter(|t| list.contains(t))
+            .or_else(|| self.notes[i].pieces.iter().rev().find_map(|p| p.rec.as_ref()?.topic.clone()));
+        let seed = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+        self.topic = self.prefs.config.topic.pick(&list, last.as_deref(), seed);
+    }
+
+    /// The topics or how they are picked changed: a piece not begun yet
+    /// keeps its topic while it is still in the list, or else takes one
+    /// again.
+    pub fn retopic(&mut self) {
+        if self.piece.is_some() || self.band.count() > 0 {
+            return;
+        }
+        let list = self.prefs.topics();
+        let keep = self.prefs.config.topic != Topic::Off && self.topic.as_ref().is_some_and(|t| list.contains(t));
+        if !keep {
+            self.choose_topic();
+        }
     }
 
     /// Into the notebook `name`: its own settings in force.
@@ -182,25 +218,34 @@ impl App {
         let i = self.ensure_note();
         let text = notebook::normalize(&self.band.text());
         let had = self.notes[i].piece(&stem);
-        let ms = if self.band.started() { Some(self.band.elapsed(Instant::now()).as_millis() as u64) } else { had.and_then(|p| p.ms) };
-        if had.map_or(text.is_empty(), |p| p.text == text && p.ms == ms) {
+        let now = Instant::now();
+        let rec = match self.band.started() {
+            true => {
+                let ms = self.band.elapsed(now).as_millis() as u64;
+                let days = notebook::grown(had, notebook::chars(&text), ms, notebook::today());
+                Some(Record { ms, topic: self.topic.clone(), pace: self.band.pace(now), days })
+            }
+            false => had.and_then(|p| p.rec.clone()),
+        };
+        if had.map_or(text.is_empty(), |p| p.text == text && p.ms() == rec.as_ref().map(|r| r.ms)) {
             return;
         }
         let n = &mut self.notes[i];
-        n.put(Piece::new(&stem, &text, ms));
+        n.put(Piece::new(&stem, &text, rec.clone()));
         n.modified = Some(SystemTime::now());
         let dir = n.dir.clone();
         notebook::sort_notes(&mut self.notes);
         if let Some(w) = &self.worker {
-            w.send(Job::Bind { dir, stem, text, ms });
+            w.send(Job::Bind { dir, stem, text, rec });
         }
     }
 
-    /// An empty band for a new piece, on the writing. The emptied draft is
-    /// written at once.
+    /// An empty band for a new piece, with a topic, on the writing. The
+    /// emptied draft is written at once.
     fn fresh_piece(&mut self, time: f64) {
         self.band.reset();
         self.piece = None;
+        self.choose_topic();
         self.preedit.clear();
         self.draft_due = Some(time);
         // The clock starts again as the band comes back on the screen.
@@ -238,7 +283,7 @@ impl App {
         let i = self.ensure_note();
         let Some(p) = self.notes[i].piece(stem).cloned() else { return };
         let limits = self.prefs.config.limits();
-        let ms = p.ms.unwrap_or(0);
+        let ms = p.ms().unwrap_or(0);
         let mut hit = Vec::new();
         if limits.chars > 0 && p.chars >= limits.chars as usize {
             hit.push(Hit::Chars);
@@ -246,7 +291,10 @@ impl App {
         if limits.minutes > 0 && ms >= u64::from(limits.minutes) * 60_000 {
             hit.push(Hit::Time);
         }
-        let kept = Kept { text: p.text, hit, started: p.ms.is_some(), elapsed_ms: ms, ..Kept::default() };
+        let started = p.rec.is_some();
+        let rec = p.rec.unwrap_or_default();
+        let kept = Kept { text: p.text, hit, started, elapsed_ms: ms, pace: rec.pace, ..Kept::default() };
+        self.topic = rec.topic;
         self.band = Band::from_kept(kept, limits);
         self.band.go_on(Instant::now(), self.prefs.config.on_continue == OnContinue::Free);
         self.piece = Some(p.stem);
@@ -592,6 +640,8 @@ pub fn show(ui: &mut Ui, app: &mut App, under: bool) {
         let margin = egui::Margin { left: 48, right: 48, top: 28, bottom: 40 };
         egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
             ui.set_max_width(820.0);
+            record(ui, app, l);
+            ui.add_space(z(22.0));
             if let Some(i) = shown {
                 if let Some(g) = pieces(ui, app, i, l) {
                     go = Some(g);
@@ -603,6 +653,32 @@ pub fn show(ui: &mut Ui, app: &mut App, under: bool) {
     if let Some(go) = go.filter(|_| !under) {
         app.shelf_go(go, time);
     }
+}
+
+/// The record over the pieces, of all the notebooks: the letters today,
+/// the days written on in a row and the letters to a minute this week.
+fn record(ui: &mut Ui, app: &App, l: Look) {
+    let c = l.c;
+    let t = &app.table;
+    let ctx = ui.ctx().clone();
+    let z = |size: f32| ito_theme::zoomed(&ctx, size);
+    let s = stats::notes(&app.notes, notebook::today());
+    let rate = s.per_minute.map_or_else(|| "—".to_owned(), |n| t.trf("record.chars", &[&n.to_string()]));
+    let cells = [
+        (t.tr("record.today_label"), t.trf("record.chars", &[&s.today.to_string()])),
+        (t.tr("record.streak_label"), t.trf("record.days", &[&s.streak.to_string()])),
+        (t.tr("record.rate_label"), rate),
+    ];
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = z(36.0);
+        for (label, value) in cells {
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = z(2.0);
+                ui.label(egui::RichText::new(label).size(z(11.5)).color(c.faint()));
+                ui.label(egui::RichText::new(value).size(z(18.0)).color(c.fg));
+            });
+        }
+    });
 }
 
 /// The pieces of the `i`th notebook, newest first, under a row for a new
@@ -640,8 +716,11 @@ fn pieces(ui: &mut Ui, app: &App, i: usize, l: Look) -> Option<Go> {
         let (r, resp) = row(ui, z(54.0), on, c);
         let paint = ui.painter();
         let mut info = t.trf("shelf.chars", &[&p.chars.to_string()]);
-        if let Some(ms) = p.ms {
+        if let Some(ms) = p.ms() {
             info = format!("{info} · {}", band::fmt(Duration::from_millis(ms), false));
+            if let Some(n) = stats::per_minute(p.chars as u32, ms) {
+                info = format!("{info} · {}", t.trf("record.rate", &[&n.to_string()]));
+            }
         }
         let info = paint.layout_no_wrap(info, FontId::proportional(z(11.5)), c.faint());
         let top = r.top() + 9.0;
@@ -726,13 +805,23 @@ mod tests {
         let d = Draft {
             note: "ノート".into(),
             piece: Some("2026-10-27_0905".into()),
-            band: Kept { text: "書きかけ".into(), back: 1, hit: vec![Hit::Time], started: true, elapsed_ms: 1500, ..Kept::default() },
+            topic: Some("朝の音".into()),
+            band: Kept {
+                text: "書きかけ".into(),
+                back: 1,
+                hit: vec![Hit::Time],
+                started: true,
+                elapsed_ms: 10_500,
+                pace: vec![1, 3],
+                ..Kept::default()
+            },
         };
         let text = toml::to_string(&d).unwrap();
-        assert!(text.contains("note = \"ノート\""), "{text}");
+        assert!(text.contains("note = \"ノート\"") && text.contains("topic = \"朝の音\""), "{text}");
         assert_eq!(toml::from_str::<Draft>(&text).unwrap(), d);
-        let none = Draft { piece: None, ..d };
-        assert!(!toml::to_string(&none).unwrap().contains("piece"));
+        let none = Draft { piece: None, topic: None, ..d };
+        let text = toml::to_string(&none).unwrap();
+        assert!(!text.contains("piece") && !text.contains("topic"), "{text}");
     }
 
     /// A draft from before there were notebooks is a band in none.
@@ -740,6 +829,6 @@ mod tests {
     fn an_old_draft_reads() {
         let k = Kept { text: "前の".into(), started: true, elapsed_ms: 42, ..Kept::default() };
         let d: Draft = toml::from_str(&toml::to_string(&k).unwrap()).unwrap();
-        assert_eq!(d, Draft { note: String::new(), piece: None, band: k });
+        assert_eq!(d, Draft { note: String::new(), piece: None, topic: None, band: k });
     }
 }

@@ -19,9 +19,11 @@ mod icon;
 mod keymap;
 mod layout;
 mod notebook;
+mod pace;
 mod prefs;
 mod settings;
 mod shelf;
+mod stats;
 mod vertical;
 mod write;
 
@@ -146,6 +148,8 @@ pub struct App {
     piece: Option<String>,
     worker: Option<notebook::Worker>,
     shelf: shelf::Shelf,
+    /// The topic shown over the band, of the piece on it.
+    topic: Option<String>,
 }
 
 /// What the palette can do.
@@ -211,6 +215,7 @@ impl App {
             piece: None,
             worker: None,
             shelf: shelf::Shelf::default(),
+            topic: None,
         };
         for w in errors.iter().chain(&warnings) {
             app.say(Kind::Warn, w);
@@ -758,6 +763,7 @@ impl App {
             typed_at: self.typed_at,
             settings_key: &settings_key,
             table: &self.table,
+            topic: self.topic.as_deref(),
         };
         write::draw(ui, rect, &view);
     }

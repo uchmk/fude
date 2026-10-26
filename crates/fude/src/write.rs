@@ -1,14 +1,14 @@
 //! The writing band on the screen: the line typed so far sliding past a
 //! fixed input point, the caret, the input method's composition at it, the
-//! hint by it, the band that says a limit was reached and the bars along the
-//! bottom. What the keys and the input method send becomes an [`Edit`] here.
+//! hint by it, the topic over it, the band that says a limit was reached and
+//! the bars along the bottom. What the keys and the input method send becomes an [`Edit`] here.
 //! The mock's `#write` (`fude-mock/index.html`), drawn with egui.
 
 use std::f32::consts::FRAC_PI_2;
 use std::time::{Duration, Instant};
 
 use egui::epaint::TextShape;
-use egui::text::{LayoutJob, TextFormat};
+use egui::text::{LayoutJob, TextFormat, TextWrapping};
 use egui::{pos2, vec2, Align, Color32, Event, FontId, Key, Painter, Pos2, Rect, Stroke};
 
 use crate::band::{self, Band, Edit, Hit};
@@ -38,6 +38,8 @@ pub struct View<'a> {
     /// The key that opens the settings, for the hint.
     pub settings_key: &'a str,
     pub table: &'a ito_i18n::Table,
+    /// The piece's topic, shown over the input point.
+    pub topic: Option<&'a str>,
 }
 
 /// The input point: where the letters before the cursor end.
@@ -148,6 +150,7 @@ pub fn draw(ui: &egui::Ui, rect: Rect, v: &View) {
     }
     let time = ctx.input(|i| i.time);
     hint(ui, &painter, p, v, typing(time, v.typed_at));
+    topic(ui, &painter, rect, p, v, typing(time, v.typed_at));
     caret(ui, &painter, caret_at(rect, v.config), time, v.typed_at);
     bars(ui, &painter, rect, v);
     banner(ui, rect, v);
@@ -386,6 +389,33 @@ fn hint(ui: &egui::Ui, painter: &Painter, p: Pos2, v: &View, busy: bool) {
     let mut painter = painter.clone();
     painter.multiply_opacity(1.0 - 0.45 * ctx.animate_bool_with_time(egui::Id::new("fude-hint-quiet"), busy, 0.3));
     painter.galley(at, g, c.dim);
+}
+
+/// The piece's topic, faint over the input point (left of it on a vertical
+/// band), cut with … where the band runs out. It goes quieter while letters
+/// come.
+fn topic(ui: &egui::Ui, painter: &Painter, rect: Rect, p: Pos2, v: &View, busy: bool) {
+    let Some(topic) = v.topic else {
+        return;
+    };
+    let ctx = ui.ctx();
+    let c = ito_theme::colors();
+    let fs = v.config.font_size as f32;
+    let width = match v.config.dir {
+        Dir::Horizontal => rect.width() * 0.6,
+        Dir::Vertical => p.x - fs * 1.1 - rect.left() - 16.0,
+    };
+    let font = FontId::proportional(ito_theme::zoomed(ctx, 14.0));
+    let mut job = LayoutJob::simple_singleline(v.table.trf("write.topic", &[topic]), font, c.faint());
+    job.wrap = TextWrapping::truncate_at_width(width.max(1.0));
+    let g = painter.layout_job(job);
+    let at = match v.config.dir {
+        Dir::Horizontal => pos2(p.x - g.size().x / 2.0, p.y - fs * 1.05 - g.size().y),
+        Dir::Vertical => pos2(p.x - fs * 1.1 - g.size().x, p.y - g.size().y / 2.0),
+    };
+    let mut painter = painter.clone();
+    painter.multiply_opacity(1.0 - 0.6 * ctx.animate_bool_with_time(egui::Id::new("fude-topic-quiet"), busy, 0.3));
+    painter.galley(at, g, c.faint());
 }
 
 /// The caret at `r`: steady while letters come, then blinking. With the

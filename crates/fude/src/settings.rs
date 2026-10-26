@@ -2,9 +2,10 @@
 //! and the rows common to every uchmk app (the language, the scale, the
 //! theme) write common.toml. The Writing page is fude's own, written to
 //! config.toml: the clock and the band, the same in every notebook and in
-//! force at once. The This notebook page is the open notebook's, written to
-//! the fude.toml in its folder: the limits, no erasing, the paper its clean
-//! copy opens on, the grid and how a line of it is filled. fude's keys are
+//! force at once, and the clean copy's letters and pace. The This notebook
+//! page is the open notebook's, written to the fude.toml in its folder: the
+//! limits, no erasing, the paper its clean copy opens on, the grid, how a
+//! line of it is filled, and the topics. fude's keys are
 //! on the Keys page, written to keymap.toml.
 
 use egui::{vec2, FontId, Sense, Stroke, StrokeKind, Ui};
@@ -12,7 +13,7 @@ use ito_common::{themes_dir, CommonChange};
 use ito_i18n::Table;
 use ito_prefs::{keyed_row, section, sep, Drafts, KeyWords, Look, MoreWords, Page, Words};
 
-use crate::config::{self, Config, Dir, Hang, OnContinue, Paper, Point, Rule, Show, TimeStart};
+use crate::config::{self, Config, Dir, Face, Hang, OnContinue, Paper, Point, Rule, Show, TimeStart, Topic};
 use crate::keymap::Keymap;
 use crate::App;
 
@@ -29,10 +30,11 @@ pub const ABOUT: usize = 6;
 const HAS: [Page; 4] = [Page::Theme, Page::App, Page::Keys, Page::Advanced];
 
 /// The Writing page's keys in config.toml, which the search finds too.
-const WRITE_KEYS: [&str; 6] = ["write.time_start", "write.on_continue", "write.show", "write.point", "write.dir", "write.font_size"];
+const WRITE_KEYS: [&str; 8] =
+    ["write.time_start", "write.on_continue", "write.show", "write.point", "write.dir", "write.font_size", "write.face", "write.pace"];
 
 /// The This notebook page's keys in fude.toml.
-const NOTE_KEYS: [&str; 12] = [
+const NOTE_KEYS: [&str; 14] = [
     "note.char_limit",
     "note.time_limit",
     "note.no_erase",
@@ -45,7 +47,12 @@ const NOTE_KEYS: [&str; 12] = [
     "note.hang",
     "note.merge",
     "note.wrap",
+    "note.topic",
+    "note.topics",
 ];
+
+/// The field a topic is added in.
+const TOPIC_FIELD: &str = "note.topics";
 
 /// What a page of fude's asks for: `table.key` in config.toml, and its value.
 type ConfigChange = (&'static str, toml::Value);
@@ -79,6 +86,9 @@ fn index<'a>(w: &'static Words, more: &'static MoreWords, kw: &'static KeyWords,
         (WRITE, tr("settings.point")),
         (WRITE, tr("settings.dir")),
         (WRITE, tr("settings.font_size")),
+        (WRITE, tr("settings.copy")),
+        (WRITE, tr("settings.face")),
+        (WRITE, tr("settings.pace")),
         (NOTE, "fude.toml"),
         (NOTE, tr("settings.limits")),
         (NOTE, tr("settings.char_limit")),
@@ -95,6 +105,9 @@ fn index<'a>(w: &'static Words, more: &'static MoreWords, kw: &'static KeyWords,
         (NOTE, tr("settings.merge")),
         (NOTE, tr("settings.sheet")),
         (NOTE, tr("settings.wrap")),
+        (NOTE, tr("settings.topic_section")),
+        (NOTE, tr("settings.topic")),
+        (NOTE, tr("settings.topics")),
     ]
     .into_iter()
     .chain(WRITE_KEYS.map(|k| (WRITE, k)))
@@ -134,6 +147,7 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     let mut advanced = Vec::new();
     let mut bug = false;
     let mut config_asked = Vec::new();
+    let topics = app.prefs.topics();
     let prefs = &mut app.prefs;
     let keys_edit = &mut prefs.keys_edit;
     let (config, drafts) = (prefs.config, &mut prefs.drafts);
@@ -146,7 +160,7 @@ pub fn show(ui: &mut Ui, app: &mut App) {
             asked.extend(ito_prefs::scale_row(ui, l, w, common.scale_or_one(), ""));
         }),
         WRITE => config_asked = write_page(ui, l, t, config),
-        NOTE => config_asked = note_page(ui, l, t, config, drafts),
+        NOTE => config_asked = note_page(ui, l, t, config, drafts, &topics),
         THEME => {
             let (choice, dark, light) = common.theme_choice(None);
             let note = match base {
@@ -218,14 +232,18 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     }
     app.prefs.keymap_edit(key_edits, &no_folder);
     app.prefs.common_change(asked, &no_folder);
+    let retopic = config_asked.iter().any(|(k, _)| k.starts_with("note.topic"));
     for (k, v) in config_asked {
         let (table, key) = k.split_once('.').expect("a key is table.key");
         app.prefs.config_change(table, key, v, &no_folder);
     }
+    if retopic {
+        app.retopic();
+    }
 }
 
-/// The Writing page: the clock and the band, the same in every notebook.
-/// What it asks for goes into config.toml.
+/// The Writing page: the clock, the band and the clean copy's letters and
+/// pace, the same in every notebook. What it asks for goes into config.toml.
 fn write_page(ui: &mut Ui, l: Look, t: &Table, c: Config) -> Vec<ConfigChange> {
     let tr = |k: &'static str| t.tr(k);
     let word = |w: &str| toml::Value::String(w.into());
@@ -281,13 +299,25 @@ fn write_page(ui: &mut Ui, l: Look, t: &Table, c: Config) -> Vec<ConfigChange> {
             asked.push(("write.font_size", n.into()));
         }
     });
+    section(ui, l, tr("settings.copy"), |ui| {
+        let faces = [(Face::Mincho, tr("settings.face_mincho")), (Face::Gothic, tr("settings.face_gothic"))];
+        if let Some(v) = pick(ui, l, "write.face", (tr("settings.face"), tr("settings.face_note")), c.face, &faces) {
+            asked.push(("write.face", word(v.word())));
+        }
+        sep(ui, l);
+        if keyed_row(ui, l, "write.pace", tr("settings.pace"), tr("settings.pace_note"), |ui| ito_prefs::switch(ui, l, c.pace)) {
+            asked.push(("write.pace", (!c.pace).into()));
+        }
+    });
     asked
 }
 
 /// The This notebook page: the limits, no erasing, the paper the clean
-/// copy opens on, the grid, and the sheets that are not a grid. What it asks
-/// for goes into the notebook's fude.toml (config.toml when none is open).
-fn note_page(ui: &mut Ui, l: Look, t: &Table, c: Config, drafts: &mut Drafts) -> Vec<ConfigChange> {
+/// copy opens on, the grid, the sheets that are not a grid, and the topics
+/// (`topics` is the notebook's list). What it asks for goes into the
+/// notebook's fude.toml (config.toml when none is open; the list then stays
+/// in memory).
+fn note_page(ui: &mut Ui, l: Look, t: &Table, c: Config, drafts: &mut Drafts, topics: &[String]) -> Vec<ConfigChange> {
     let tr = |k: &'static str| t.tr(k);
     let trf = |k: &'static str, n: u32| t.trf(k, &[&n.to_string()]);
     let word = |w: &str| toml::Value::String(w.into());
@@ -389,6 +419,39 @@ fn note_page(ui: &mut Ui, l: Look, t: &Table, c: Config, drafts: &mut Drafts) ->
         let wraps: Vec<(u32, &str)> = wraps.iter().map(|(n, w)| (*n, w.as_str())).collect();
         if let Some(n) = pick(ui, l, "note.wrap", (tr("settings.wrap"), tr("settings.wrap_note")), c.wrap, &wraps) {
             asked.push(("note.wrap", n.into()));
+        }
+    });
+    section(ui, l, tr("settings.topic_section"), |ui| {
+        let ways = [
+            (Topic::Order, tr("settings.topic_order")),
+            (Topic::Random, tr("settings.topic_random")),
+            (Topic::Off, tr("settings.topic_none")),
+        ];
+        if let Some(v) = pick(ui, l, "note.topic", (tr("settings.topic"), tr("settings.topic_note")), c.topic, &ways) {
+            asked.push(("note.topic", word(v.word())));
+        }
+        sep(ui, l);
+        let added = keyed_row(ui, l, "note.topics", tr("settings.topics"), tr("settings.topics_note"), |ui| {
+            ito_prefs::field(ui, drafts, TOPIC_FIELD, "", tr("settings.topic_add"), 220.0)
+        });
+        // The field empties for the next one.
+        if let Some(new) = added.map(|w| w.trim().to_owned()).filter(|w| !w.is_empty()) {
+            drafts.remove(TOPIC_FIELD);
+            if !topics.contains(&new) {
+                let list: Vec<String> = topics.iter().cloned().chain([new]).collect();
+                asked.push(("note.topics", config::topics_value(&list)));
+            }
+        }
+        if topics.is_empty() {
+            sep(ui, l);
+            ito_prefs::status(ui, tr("settings.topics_empty"), l.c.faint());
+        }
+        for (i, topic) in topics.iter().enumerate() {
+            sep(ui, l);
+            if ito_prefs::row(ui, l, topic, "", |ui| ito_prefs::button(ui, l, tr("settings.topic_remove"))) {
+                let list: Vec<String> = topics.iter().enumerate().filter(|&(k, _)| k != i).map(|(_, w)| w.clone()).collect();
+                asked.push(("note.topics", config::topics_value(&list)));
+            }
         }
     });
     asked
@@ -575,7 +638,7 @@ mod tests {
     fn the_page_keys_are_settings() {
         let mut c = Config::default();
         let value = |k: &str| match k {
-            "note.no_erase" | "note.indent" | "note.merge" => toml::Value::Boolean(true),
+            "note.no_erase" | "note.indent" | "note.merge" | "write.pace" => toml::Value::Boolean(true),
             "note.char_limit" | "note.time_limit" | "write.font_size" | "note.cols" | "note.rows" | "note.wrap" => toml::Value::Integer(20),
             _ => toml::Value::String(String::new()),
         };
@@ -596,6 +659,9 @@ mod tests {
             (a.table, _) = crate::i18n::table(lang);
             a.prefs.config.char_limit = 333;
             (a.prefs.config.cols, a.prefs.config.rows, a.prefs.config.wrap) = (24, 12, 33);
+            // A notebook with no file keeps its topics in memory.
+            a.prefs.config_change("note", "topics", config::topics_value(&["朝の音".into(), "窓".into()]), "");
+            assert_eq!(a.prefs.topics(), ["朝の音", "窓"]);
             a.screen = Screen::Settings;
             let ctx = egui::Context::default();
             for page in [WRITE, NOTE] {

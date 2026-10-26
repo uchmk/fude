@@ -1,6 +1,6 @@
 //! The clean copy, which Esc on the writing opens: what was written, set on
 //! its paper, under a banner that says why it is shown and a row that
-//! changes the paper. Enter or a letter writes on, a click on a letter puts
+//! changes the paper, over a line with the record and how fast it went. Enter or a letter writes on, a click on a letter puts
 //! the cursor there, Ctrl+N starts a new piece, Ctrl+S binds this one and
 //! ←→ turn to the pieces around it. The mock's `#clean`.
 
@@ -13,7 +13,8 @@ use ito_prefs::Look;
 use crate::band::{self, Band, Hit};
 use crate::config::{Config, Dir, OnContinue, Paper, COLS, ROWS, WRAP};
 use crate::draw::{self, Drawn, Sheet};
-use crate::{layout, write, App, Screen};
+use crate::pace::Pace;
+use crate::{layout, notebook, stats, write, App, Screen};
 
 /// How long the tools row says what a copy did, in seconds.
 pub const SAID: f64 = 2.5;
@@ -165,7 +166,8 @@ fn writes(e: &Event) -> bool {
     }
 }
 
-/// The clean copy filling `ui`: the banner, the tools row and the paper.
+/// The clean copy filling `ui`: the banner, the tools row, the paper and
+/// the line under it.
 /// `under` is the key list over it: drawn, but not to be clicked.
 pub fn show(ui: &mut Ui, app: &mut App, under: bool) {
     let ctx = ui.ctx().clone();
@@ -192,8 +194,12 @@ pub fn show(ui: &mut Ui, app: &mut App, under: bool) {
     if tools(ui, app, l, time) {
         app.write_on();
     }
+    // Flipping loads a piece onto the band, so the band's pace is the one
+    // of the piece shown.
+    let pace = if config.pace { Pace::new(&text, &app.band.pace(Instant::now())) } else { None };
+    foot(ui, app, l, pace.is_some());
     let empty = app.table.tr("clean.empty").to_owned();
-    let drawn = draw::draw(ui, &app.clean.sheet, &config, &text, &empty, app.clean.fresh);
+    let drawn = draw::draw(ui, &app.clean.sheet, &config, &text, &empty, app.clean.fresh, pace.as_ref());
     app.clean.fresh = false;
     let counts = Drawn { clicked: None, ..drawn };
     if counts != app.clean.last {
@@ -205,6 +211,44 @@ pub fn show(ui: &mut Ui, app: &mut App, under: bool) {
         app.band.set_cursor(i);
         app.write_on();
     }
+}
+
+/// The line under the paper: how fast this piece went, the letters today
+/// and the days in a row, and with the pace in the margin what its marks
+/// are.
+fn foot(ui: &mut Ui, app: &App, l: Look, paced: bool) {
+    let c = l.c;
+    let t = &app.table;
+    let b = &app.band;
+    let s = stats::notes(&app.notes, notebook::today());
+    let mut parts = Vec::new();
+    if let Some(n) = stats::per_minute(b.count() as u32, b.elapsed(Instant::now()).as_millis() as u64) {
+        parts.push(t.trf("record.piece_rate", &[&n.to_string()]));
+    }
+    parts.push(t.trf("record.today", &[&s.today.to_string()]));
+    if s.streak > 0 {
+        parts.push(t.trf("record.streak", &[&s.streak.to_string()]));
+    }
+    let frame = egui::Frame::NONE.fill(c.side).inner_margin(egui::Margin::symmetric(16, 6));
+    egui::Panel::bottom("fude-clean-foot").frame(frame).show_separator_line(false).show(ui, |ui| {
+        let r = ui.max_rect();
+        ui.painter().hline(r.x_range().expand(16.0), r.top() - 5.5, Stroke::new(1.0, c.border));
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            ito_prefs::status(ui, &parts.join(" · "), c.dim);
+            if paced {
+                ui.add_space(16.0);
+                let h = ito_theme::zoomed(ui.ctx(), 12.5);
+                let (r, _) = ui.allocate_exact_size(vec2(18.0, h), Sense::hover());
+                let bar = Stroke::new(3.0, c.dim.gamma_multiply(0.7));
+                ui.painter().line_segment([pos2(r.left(), r.center().y), pos2(r.right(), r.center().y)], bar);
+                ito_prefs::status(ui, t.tr("record.pace"), c.faint());
+                let (r, _) = ui.allocate_exact_size(vec2(6.0, h), Sense::hover());
+                ui.painter().circle_filled(r.center(), 2.2, c.wait);
+                ito_prefs::status(ui, t.tr("record.stop"), c.faint());
+            }
+        });
+    });
 }
 
 /// What the banner's buttons ask for.

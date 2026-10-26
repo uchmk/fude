@@ -1,7 +1,8 @@
 //! The clean copy on its paper: a manuscript grid in pages, or a ruled,
 //! graph or plain sheet the lines wrap on; across the page or down it. Ruby
 //! over the letters, a dot by each emphasised one, and where a click puts
-//! the cursor. The mock's `renderGenko` and `renderWrap` and their CSS.
+//! the cursor; in the margin, how fast each line went and where the hand
+//! stopped. The mock's `renderGenko` and `renderWrap` and their CSS.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -10,9 +11,10 @@ use egui::{
     pos2, vec2, Color32, CursorIcon, FontFamily, FontId, Painter, Pos2, Rect, ScrollArea, Sense, Shape, Stroke, StrokeKind, Ui, Vec2,
 };
 
-use crate::config::{Config, Dir, Hang, Paper, Rule};
+use crate::config::{Config, Dir, Face, Hang, Paper, Rule};
 use crate::fonts;
 use crate::layout::{self, genko, wrap, Doc, Token};
+use crate::pace::Pace;
 use crate::vertical::{self, Turn};
 use crate::write::middle;
 
@@ -65,14 +67,23 @@ pub struct Drawn {
 
 /// The clean copy of `text` on `sheet`, filling what is left of `ui`;
 /// `empty` is said on a sheet with nothing on it. `fresh` scrolls to where
-/// the text begins: the top, and the right of a vertical one.
-pub fn draw(ui: &mut Ui, sheet: &Sheet, config: &Config, text: &str, empty: &str, fresh: bool) -> Drawn {
+/// the text begins: the top, and the right of a vertical one. With a
+/// `pace`, the margin shows how fast each line went.
+pub fn draw(ui: &mut Ui, sheet: &Sheet, config: &Config, text: &str, empty: &str, fresh: bool, pace: Option<&Pace>) -> Drawn {
     let doc = Doc::parse(text);
     let end = text.chars().count();
     if sheet.paper == Paper::Genko {
-        grid(ui, sheet, config, &doc, end, fresh)
+        grid(ui, sheet, config, &doc, end, fresh, pace)
     } else {
-        lined(ui, sheet, config, &doc, end, empty, fresh)
+        lined(ui, sheet, config, &doc, end, empty, fresh, pace)
+    }
+}
+
+/// The family the clean copy is set in.
+fn family(ctx: &egui::Context, config: &Config) -> FontFamily {
+    match config.face {
+        Face::Mincho => fonts::mincho(ctx),
+        Face::Gothic => FontFamily::Proportional,
     }
 }
 
@@ -82,6 +93,8 @@ struct Ink {
     ink: Color32,
     rule: Color32,
     dim: Color32,
+    /// The dot where the hand stopped.
+    stop: Color32,
 }
 
 impl Ink {
@@ -97,7 +110,13 @@ impl Ink {
             Rule::Ao => rgb([0x6f, 0x9f, 0xd0], [0x5a, 0x7f, 0xa6]),
             Rule::Sumi => rgb([0x8a, 0x90, 0x9b], [0x5b, 0x62, 0x72]),
         };
-        Ink { paper: rgb([0xff, 0xfd, 0xf8], [0x1d, 0x20, 0x27]), ink: rgb([0x1d, 0x21, 0x29], [0xdf, 0xe3, 0xea]), rule, dim: c.dim }
+        Ink {
+            paper: rgb([0xff, 0xfd, 0xf8], [0x1d, 0x20, 0x27]),
+            ink: rgb([0x1d, 0x21, 0x29], [0xdf, 0xe3, 0xea]),
+            rule,
+            dim: c.dim,
+            stop: c.wait,
+        }
     }
 
     /// A sheet of paper laid on the room.
@@ -303,7 +322,7 @@ fn rule(painter: &Painter, along_x: bool, at: f32, range: (f32, f32), color: Col
 
 /// Manuscript paper: `rows` lines of `cols` squares to a page, the pages
 /// side by side as many as fit, then on down.
-fn grid(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, fresh: bool) -> Drawn {
+fn grid(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, fresh: bool, pace: Option<&Pace>) -> Drawn {
     let vertical = sheet.dir == Dir::Vertical;
     let (cols, rows) = (sheet.cols.max(1) as usize, sheet.rows.max(1) as usize);
     let lines = genko::lines(doc, &genko::Opt { cols, indent: config.indent, hang: config.hang, merge: config.merge, vertical });
@@ -328,7 +347,7 @@ fn grid(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, fres
     let size = vec2(per_row as f32 * (page.x + GAP) - GAP, page_rows as f32 * (page.y + GAP) - GAP) + Vec2::splat(2.0 * PAD);
     let ink = Ink::of(config.rule);
     let ctx = ui.ctx().clone();
-    let family = fonts::mincho(&ctx);
+    let family = family(&ctx, config);
     let probe = FontId::new(s, family.clone());
     let has = |ch: char| ctx.fonts_mut(|f| f.has_glyph(&probe, ch));
     let starts = ruby_starts(doc);
@@ -364,7 +383,7 @@ fn grid(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, fres
                     hashira(&pen, &ink, Rect::from_min_max(pos2(right - 1.1 * s, grid_r.top()), pos2(right, grid_r.bottom())), s, p + 1);
                 }
                 let ln = lines.get(p * rows + r);
-                spots.extend(line(&pen, &ink, doc, &starts, ln, line_r, s, cols, tuck, end));
+                spots.extend(line(&pen, &ink, doc, &starts, ln, line_r, s, cols, tuck, end, pace));
             }
             if !pillar {
                 let font = FontId::proportional(11.0);
@@ -392,6 +411,7 @@ fn line(
     cols: usize,
     tuck: bool,
     end: usize,
+    pace: Option<&Pace>,
 ) -> Vec<(Rect, usize)> {
     let vertical = pen.vertical;
     let painter = pen.painter;
@@ -469,7 +489,38 @@ fn line(
     let g = s * 0.3;
     let side = if vertical { r.right() + g / 2.0 } else { r.top() - g / 2.0 };
     marks(pen, doc, starts, &placed, side, s * 0.28, fs * 0.09);
+    if let Some(pace) = pace {
+        // Over the grid or before it; the stops on the rule after the line,
+        // away from the ruby.
+        let (from, most, side) = if vertical {
+            (pos2(r.center().x, r.top() - 0.25 * s), vec2(0.0, -0.55 * s), r.left())
+        } else {
+            (pos2(r.left() - 0.25 * s, r.center().y), vec2(-0.55 * s, 0.0), r.bottom())
+        };
+        speed(pen, ink, pace, &placed, from, most, side);
+    }
     spots
+}
+
+/// How fast the line of `placed` went: a bar in the margin from `from`, as
+/// long as `most` at twice the piece's own speed; and a dot along `side`
+/// after each letter the hand stopped at.
+fn speed(pen: &Pen, ink: &Ink, pace: &Pace, placed: &[Placed], from: Pos2, most: Vec2, side: f32) {
+    let (Some(first), Some(last)) = (placed.first(), placed.last()) else {
+        return;
+    };
+    let (at, end) = (first.t.at, last.t.end);
+    if let Some(share) = pace.share(at, end) {
+        // Even the slowest line shows a stub.
+        let share = share.max(2.0 / most.length());
+        pen.painter.line_segment([from, from + most * share], Stroke::new(3.0, ink.dim.gamma_multiply(0.7)));
+    }
+    for &i in pace.stops().iter().filter(|&&i| at < i && i <= end) {
+        if let Some(p) = placed.iter().rev().find(|p| p.t.at < i) {
+            let c = if pen.vertical { pos2(side, p.r.bottom()) } else { pos2(p.r.right(), side) };
+            pen.painter.circle_filled(c, 2.2, ink.stop);
+        }
+    }
 }
 
 /// The pillar of a vertical page: the fishtail and the page's number.
@@ -491,12 +542,13 @@ fn hashira(pen: &Pen, ink: &Ink, r: Rect, s: f32, page: usize) {
 
 /// A ruled, graph or plain sheet: the lines broken where it runs out, one
 /// long sheet.
-fn lined(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, empty: &str, fresh: bool) -> Drawn {
+#[allow(clippy::too_many_arguments)]
+fn lined(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, empty: &str, fresh: bool, pace: Option<&Pace>) -> Drawn {
     let vertical = sheet.dir == Dir::Vertical;
     let graph = sheet.paper == Paper::Graph;
     let avail = ui.available_size();
     let ctx = ui.ctx().clone();
-    let family = fonts::mincho(&ctx);
+    let family = family(&ctx, config);
     let font = FontId::new(FONT, family.clone());
     let measure = ui.painter().clone();
     let adv = |s: &str| measure.layout_no_wrap(s.into(), font.clone(), Color32::WHITE).size().x / FONT;
@@ -566,7 +618,7 @@ fn lined(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, emp
             if !painter.clip_rect().intersects(band) {
                 continue;
             }
-            spots.extend(row_of(&pen, doc, &starts, row, band, text_r));
+            spots.extend(row_of(&pen, &ink, doc, &starts, row, band, text_r, pace));
         }
         spots
     };
@@ -576,7 +628,17 @@ fn lined(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, emp
 
 /// One line of a sheet in its `band` (the sheet's width or height), its
 /// letters from the start of `text_r`; the spots a click puts the cursor by.
-fn row_of(pen: &Pen, doc: &Doc, starts: &[usize], row: &wrap::Row, band: Rect, text_r: Rect) -> Vec<(Rect, usize)> {
+#[allow(clippy::too_many_arguments)]
+fn row_of(
+    pen: &Pen,
+    ink: &Ink,
+    doc: &Doc,
+    starts: &[usize],
+    row: &wrap::Row,
+    band: Rect,
+    text_r: Rect,
+    pace: Option<&Pace>,
+) -> Vec<(Rect, usize)> {
     let vertical = pen.vertical;
     let mut at = if vertical { text_r.top() } else { text_r.left() } + row.lead * FONT;
     let mut spots = Vec::new();
@@ -623,6 +685,14 @@ fn row_of(pen: &Pen, doc: &Doc, starts: &[usize], row: &wrap::Row, band: Rect, t
     spots.push((run(at, f32::INFINITY), last));
     let side = if vertical { band.center().x + 15.0 } else { band.top() + 5.0 };
     marks(pen, doc, starts, &placed, side, 10.0, FONT * 0.09);
+    if let Some(pace) = pace {
+        let (from, most, side) = if vertical {
+            (pos2(band.center().x, text_r.top() - 6.0), vec2(0.0, -26.0), band.center().x - 15.0)
+        } else {
+            (pos2(text_r.left() - 6.0, band.center().y), vec2(-32.0, 0.0), band.bottom() - 5.0)
+        };
+        speed(pen, ink, pace, &placed, from, most, side);
+    }
     spots
 }
 

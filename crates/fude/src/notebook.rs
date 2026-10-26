@@ -1,8 +1,9 @@
 //! Notebooks: one folder each in `Documents\fude`, holding the pieces written
 //! in it as `YYYY-MM-DD_HHMM.txt` (named by the local time a piece was begun;
 //! UTF-8, LF, a paragraph to a line) and `fude.toml`, with the notebook's own
-//! settings (`[note]`) and how long each piece took (`[pieces.<stem>]`). A
-//! `.txt` put there by hand is a piece too, with no record. The disk work is
+//! settings (`[note]`) and how each piece was written (`[pieces.<stem>]`: its
+//! time, topic, pace and days). A `.txt` put there by hand is a piece too,
+//! with no record. The disk work is
 //! done on the [`Worker`]'s thread; the UI keeps what it last read.
 
 use std::fs;
@@ -12,7 +13,7 @@ use std::sync::Mutex;
 use std::thread::JoinHandle;
 use std::time::SystemTime;
 
-use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveDateTime};
 use ito_common::text::natural_cmp;
 
 /// The notebook's settings and records, in its folder.
@@ -38,14 +39,57 @@ pub struct Piece {
     pub text: String,
     /// Letters, the paragraph breaks not counted.
     pub chars: usize,
-    /// How long it took, in milliseconds; `None` with no record.
-    pub ms: Option<u64>,
+    /// How it was written; `None` for a piece fude did not time.
+    pub rec: Option<Record>,
     pub modified: Option<SystemTime>,
 }
 
+/// How a piece was written, `[pieces.<stem>]` in `fude.toml`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Record {
+    /// How long it took, in milliseconds.
+    pub ms: u64,
+    /// The topic it was written to.
+    pub topic: Option<String>,
+    /// The letters at the end of each [`band::PACE`] of its time.
+    ///
+    /// [`band::PACE`]: crate::band::PACE
+    pub pace: Vec<u32>,
+    /// What it grew by on each day it was written on, oldest first.
+    pub days: Vec<Day>,
+}
+
+/// What a piece grew by on one day.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Day {
+    pub day: NaiveDate,
+    pub chars: u32,
+    pub ms: u64,
+}
+
 impl Piece {
-    pub fn new(stem: &str, text: &str, ms: Option<u64>) -> Piece {
-        Piece { stem: stem.into(), text: text.into(), chars: chars(text), ms, modified: Some(SystemTime::now()) }
+    pub fn new(stem: &str, text: &str, rec: Option<Record>) -> Piece {
+        Piece { stem: stem.into(), text: text.into(), chars: chars(text), rec, modified: Some(SystemTime::now()) }
+    }
+
+    /// How long it took, in milliseconds.
+    pub fn ms(&self) -> Option<u64> {
+        self.rec.as_ref().map(|r| r.ms)
+    }
+
+    /// What it grew by on each day. A record from before the days were kept
+    /// counts as all written on the day the piece was begun.
+    pub fn days(&self) -> Vec<Day> {
+        match &self.rec {
+            Some(r) if r.days.is_empty() => self
+                .begun()
+                .map(|b| Day { day: b.date(), chars: self.chars as u32, ms: r.ms })
+                .filter(|d| d.chars > 0 || d.ms > 0)
+                .into_iter()
+                .collect(),
+            Some(r) => r.days.clone(),
+            None => Vec::new(),
+        }
     }
 
     /// When it was begun: by its name, or else when it was last changed.
@@ -100,6 +144,33 @@ impl Note {
             }
         }
     }
+}
+
+/// `days` with `chars` letters and `ms` more on `day`.
+pub fn add_day(days: &mut Vec<Day>, day: NaiveDate, chars: u32, ms: u64) {
+    if chars == 0 && ms == 0 {
+        return;
+    }
+    match days.iter_mut().find(|d| d.day == day) {
+        Some(d) => {
+            d.chars += chars;
+            d.ms += ms;
+        }
+        None => {
+            days.push(Day { day, chars, ms });
+            days.sort_by_key(|d| d.day);
+        }
+    }
+}
+
+/// The days of a piece that was `had` and is now `chars` letters long,
+/// having taken `ms`: what it grew by goes to `today`. Letters put in it by
+/// hand were never timed, so they are not counted.
+pub fn grown(had: Option<&Piece>, chars: usize, ms: u64, today: NaiveDate) -> Vec<Day> {
+    let mut days = had.map(Piece::days).unwrap_or_default();
+    let (c, m) = had.map_or((0, 0), |p| (p.chars, p.ms().unwrap_or(0)));
+    add_day(&mut days, today, chars.saturating_sub(c) as u32, ms.saturating_sub(m));
+    days
 }
 
 /// Letters, the paragraph breaks not counted.
@@ -194,17 +265,38 @@ fn note_table(t: &toml::Table) -> toml::Table {
     t.get("note").and_then(|v| v.as_table()).cloned().unwrap_or_default()
 }
 
+/// The record of the piece `stem` in `fude.toml`, read as `t`.
+fn record_in(t: &toml::Table, stem: &str) -> Option<Record> {
+    let r = t.get("pieces")?.get(stem)?.as_table()?;
+    let ms = u64::try_from(r.get("ms")?.as_integer()?).ok()?;
+    let topic = r.get("topic").and_then(|v| v.as_str()).map(str::to_owned);
+    let list = |k: &str| r.get(k).and_then(|v| v.as_array()).into_iter().flatten();
+    let pace = list("pace").filter_map(|v| u32::try_from(v.as_integer()?).ok()).collect();
+    let days = list("days").filter_map(|v| day_in(v.as_table()?)).collect();
+    Some(Record { ms, topic, pace, days })
+}
+
+/// One of a record's `days`: `{ day = 2026-10-27, chars = 120, ms = 65000 }`.
+fn day_in(t: &toml::Table) -> Option<Day> {
+    let day = match t.get("day")? {
+        toml::Value::Datetime(d) => {
+            let d = d.date?;
+            NaiveDate::from_ymd_opt(d.year.into(), d.month.into(), d.day.into())?
+        }
+        toml::Value::String(s) => NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()?,
+        _ => return None,
+    };
+    let chars = u32::try_from(t.get("chars")?.as_integer()?).ok()?;
+    let ms = u64::try_from(t.get("ms")?.as_integer()?).ok()?;
+    Some(Day { day, chars, ms })
+}
+
 /// The notebook in `dir`, its pieces read.
 pub fn read_note(dir: &Path) -> Note {
     let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let (toml, warn) = match read_toml(dir) {
         Ok(t) => (t, None),
         Err(e) => (toml::Table::new(), Some(e)),
-    };
-    let records = toml.get("pieces").and_then(|v| v.as_table());
-    let ms = |stem: &str| {
-        let n = records?.get(stem)?.get("ms")?.as_integer()?;
-        u64::try_from(n).ok()
     };
     let mut pieces = Vec::new();
     if let Ok(entries) = fs::read_dir(dir) {
@@ -217,7 +309,7 @@ pub fn read_note(dir: &Path) -> Note {
             let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
             let Ok(bytes) = fs::read(&path) else { continue };
             let text = normalize(&String::from_utf8_lossy(&bytes));
-            pieces.push(Piece { stem: stem.into(), chars: chars(&text), text, ms: ms(stem), modified: modified(&path) });
+            pieces.push(Piece { stem: stem.into(), chars: chars(&text), text, rec: record_in(&toml, stem), modified: modified(&path) });
         }
     }
     sort_pieces(&mut pieces);
@@ -275,15 +367,17 @@ fn reserved(name: &str) -> bool {
 
 /// Put `text` into the piece `stem` in `dir` (the folder made if need be),
 /// written only when it differs from what is there; nothing written for an
-/// empty piece that has no file yet. `ms` goes into `fude.toml` when it
-/// changes it. Whether the piece's file was written.
-pub fn bind(dir: &Path, stem: &str, text: &str, ms: Option<u64>) -> Result<bool, String> {
+/// empty piece that has no file yet. `rec` goes into `fude.toml` when it
+/// changes it, its days counted again from what is on the disk with what the
+/// piece grew by going to `today`. Whether the piece's file was written.
+pub fn bind(dir: &Path, stem: &str, text: &str, rec: Option<&Record>, today: NaiveDate) -> Result<bool, String> {
     let path = dir.join(format!("{stem}.txt"));
     let had = match fs::read(&path) {
         Ok(b) => Some(normalize(&String::from_utf8_lossy(&b))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(format!("{}: {e}", path.display())),
     };
+    let had_chars = had.as_deref().map(chars);
     let wrote = match had {
         None if text.is_empty() => return Ok(false),
         Some(h) if h == text => false,
@@ -292,19 +386,45 @@ pub fn bind(dir: &Path, stem: &str, text: &str, ms: Option<u64>) -> Result<bool,
             true
         }
     };
-    if let Some(ms) = ms.filter(|_| bare(stem)) {
-        record(dir, stem, ms)?;
+    if let Some(rec) = rec.filter(|_| bare(stem)) {
+        record(dir, stem, rec, had_chars, chars(text), today)?;
     }
     Ok(wrote)
 }
 
-/// `[pieces.<stem>] ms` in `dir`'s `fude.toml`, written when it changes it.
-fn record(dir: &Path, stem: &str, ms: u64) -> Result<(), String> {
+/// `[pieces.<stem>]` in `dir`'s `fude.toml`, written when it changes it: the
+/// time, topic and pace of `rec`, and the days on the disk with what the
+/// piece grew by from `had` letters to `chars` going to `today`.
+fn record(dir: &Path, stem: &str, rec: &Record, had: Option<usize>, chars: usize, today: NaiveDate) -> Result<(), String> {
     let _one = TOML_ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let path = dir.join(FILE);
     let at = |e: String| format!("{}: {e}", path.display());
     let text = ito_common::read_or_empty(&path)?;
-    let new = ito_common::set_key(&text, Some(&format!("pieces.{stem}")), "ms", &ms.to_string()).map_err(at)?;
+    let old = text.parse::<toml::Table>().map_err(|e| at(e.to_string()))?;
+    let old = record_in(&old, stem);
+    let was = (had.is_some() || old.is_some()).then(|| Piece {
+        stem: stem.into(),
+        text: String::new(),
+        chars: had.unwrap_or(0),
+        rec: old,
+        modified: None,
+    });
+    let days = grown(was.as_ref(), chars, rec.ms, today);
+    let table = format!("pieces.{stem}");
+    let set = |text: &str, key: &str, value: &str| ito_common::set_key(text, Some(&table), key, value).map_err(at);
+    let mut new = set(&text, "ms", &rec.ms.to_string())?;
+    if let Some(t) = &rec.topic {
+        new = set(&new, "topic", &ito_common::quote(t))?;
+    }
+    if !rec.pace.is_empty() {
+        let pace: Vec<String> = rec.pace.iter().map(u32::to_string).collect();
+        new = set(&new, "pace", &format!("[{}]", pace.join(", ")))?;
+    }
+    if !days.is_empty() {
+        let days: Vec<String> =
+            days.iter().map(|d| format!("{{ day = {}, chars = {}, ms = {} }}", d.day.format("%Y-%m-%d"), d.chars, d.ms)).collect();
+        new = set(&new, "days", &format!("[{}]", days.join(", ")))?;
+    }
     if new != text {
         ito_common::write_atomic(&path, new)?;
     }
@@ -344,7 +464,7 @@ pub enum Job {
         dir: PathBuf,
         stem: String,
         text: String,
-        ms: Option<u64>,
+        rec: Option<Record>,
     },
     Make {
         dir: PathBuf,
@@ -389,7 +509,7 @@ impl Worker {
                 };
                 while let Ok(job) = jobs.recv() {
                     match job {
-                        Job::Bind { dir, stem, text, ms } => match bind(&dir, &stem, &text, ms) {
+                        Job::Bind { dir, stem, text, rec } => match bind(&dir, &stem, &text, rec.as_ref(), today()) {
                             Ok(_) => send(Done::Note(read_note(&dir))),
                             Err(e) => send(Done::Failed(e)),
                         },
@@ -433,6 +553,11 @@ impl Worker {
     }
 }
 
+/// The local date: the day what is written now counts on.
+pub fn today() -> NaiveDate {
+    chrono::Local::now().date_naive()
+}
+
 /// The piece `by` places from `at` among `stems` (oldest first), where `at`
 /// is `None` for a piece with no name yet (after the last). `None` at either
 /// end.
@@ -464,6 +589,14 @@ mod tests {
 
     fn at(s: &str) -> NaiveDateTime {
         NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M").unwrap()
+    }
+
+    fn day(s: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    fn timed(ms: u64) -> Record {
+        Record { ms, ..Record::default() }
     }
 
     #[test]
@@ -503,20 +636,21 @@ mod tests {
     fn a_piece_is_bound_with_its_time_and_read_back() {
         let root = scratch("bind");
         let dir = root.join("旅");
+        let d = day("2026-10-27");
         // An empty piece with no file: nothing is made.
-        assert_eq!(bind(&dir, "2026-10-27_0905", "", Some(5)), Ok(false));
+        assert_eq!(bind(&dir, "2026-10-27_0905", "", Some(&timed(5)), d), Ok(false));
         assert!(!dir.exists());
-        assert_eq!(bind(&dir, "2026-10-27_0905", "一行目\n二行目", Some(65_000)), Ok(true));
+        assert_eq!(bind(&dir, "2026-10-27_0905", "一行目\n二行目", Some(&timed(65_000)), d), Ok(true));
         assert_eq!(fs::read_to_string(dir.join("2026-10-27_0905.txt")).unwrap(), "一行目\n二行目\n");
         // The same again: the file is left, the time goes in.
-        assert_eq!(bind(&dir, "2026-10-27_0905", "一行目\n二行目", Some(70_000)), Ok(false));
+        assert_eq!(bind(&dir, "2026-10-27_0905", "一行目\n二行目", Some(&timed(70_000)), d), Ok(false));
         // A piece put there by hand, with CRLF and a BOM, and one not named by its time.
         fs::write(dir.join("2026-10-26_2200.TXT"), "\u{feff}手で\r\n\r\n置いた\r\n").unwrap();
         fs::write(dir.join("my memo.txt"), "メモ").unwrap();
         fs::write(dir.join("notes.md"), "not a piece").unwrap();
         // Hand-written CRLF read as it is: binding the same text leaves the file alone.
-        assert_eq!(bind(&dir, "2026-10-26_2200", "手で\n置いた", None), Ok(false));
-        assert_eq!(bind(&dir, "my memo", "メモ。", Some(1)), Ok(true));
+        assert_eq!(bind(&dir, "2026-10-26_2200", "手で\n置いた", None, d), Ok(false));
+        assert_eq!(bind(&dir, "my memo", "メモ。", Some(&timed(1)), d), Ok(true));
         let toml = fs::read_to_string(dir.join(FILE)).unwrap();
         assert!(!toml.contains("memo") && toml.contains("[pieces.2026-10-27_0905]"), "{toml}");
 
@@ -527,14 +661,58 @@ mod tests {
         assert!(n.warn.is_none());
         let stems: Vec<&str> = n.pieces.iter().map(|p| p.stem.as_str()).collect();
         assert_eq!(stems, ["2026-10-26_2200", "2026-10-27_0905", "my memo"]);
-        assert_eq!(n.pieces[1].ms, Some(70_000));
+        assert_eq!(n.pieces[1].ms(), Some(70_000));
         assert_eq!(n.pieces[1].chars, 6);
+        assert_eq!(n.pieces[1].days(), [Day { day: d, chars: 6, ms: 70_000 }]);
         assert_eq!(n.pieces[0].text, "手で\n置いた");
-        assert_eq!(n.pieces[0].ms, None);
+        assert_eq!(n.pieces[0].ms(), None);
         assert_eq!(n.pieces[2].text, "メモ。");
         // Emptied: the file stays, empty.
-        assert_eq!(bind(&dir, "my memo", "", None), Ok(true));
+        assert_eq!(bind(&dir, "my memo", "", None, d), Ok(true));
         assert_eq!(fs::read_to_string(dir.join("my memo.txt")).unwrap(), "");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_record_keeps_the_topic_the_pace_and_what_each_day_added() {
+        let root = scratch("record");
+        let dir = root.join("旅");
+        let stem = "2026-10-26_2200";
+        let rec = |ms, pace: &[u32]| Record { ms, topic: Some("朝の\"音\"".into()), pace: pace.to_vec(), days: Vec::new() };
+        bind(&dir, stem, "あいう", Some(&rec(10_000, &[2, 3])), day("2026-10-26")).unwrap();
+        // Two more letters and 20 seconds the next day; a day bound again adds to itself.
+        bind(&dir, stem, "あいう\nえお", Some(&rec(25_000, &[2, 3, 3, 4, 5])), day("2026-10-27")).unwrap();
+        bind(&dir, stem, "あいう\nえおか", Some(&rec(30_000, &[2, 3, 3, 4, 5, 6])), day("2026-10-27")).unwrap();
+        // Letters taken out are not counted against a day.
+        bind(&dir, stem, "あ", Some(&rec(31_000, &[2, 3, 3, 4, 5, 6])), day("2026-10-28")).unwrap();
+        let toml = fs::read_to_string(dir.join(FILE)).unwrap();
+        assert!(toml.contains("days = [{ day = 2026-10-26, chars = 3, ms = 10000 }"), "{toml}");
+        let p = &read_note(&dir).pieces[0];
+        let r = p.rec.as_ref().unwrap();
+        assert_eq!(r.topic.as_deref(), Some("朝の\"音\""));
+        assert_eq!(r.pace, [2, 3, 3, 4, 5, 6]);
+        assert_eq!(
+            p.days(),
+            [
+                Day { day: day("2026-10-26"), chars: 3, ms: 10_000 },
+                Day { day: day("2026-10-27"), chars: 3, ms: 20_000 },
+                Day { day: day("2026-10-28"), chars: 0, ms: 1_000 },
+            ]
+        );
+        // A record from before the days were kept: all on the day it was begun, and
+        // what is written on it later goes on the day it is.
+        fs::write(dir.join(FILE), "[pieces.2026-10-26_2200]\nms = 9000\n").unwrap();
+        let p = &read_note(&dir).pieces[0];
+        assert_eq!(p.days(), [Day { day: day("2026-10-26"), chars: 1, ms: 9_000 }]);
+        assert_eq!(
+            grown(Some(p), 3, 12_000, day("2026-10-29")),
+            [Day { day: day("2026-10-26"), chars: 1, ms: 9_000 }, Day { day: day("2026-10-29"), chars: 2, ms: 3_000 }]
+        );
+        bind(&dir, stem, "あいう", Some(&timed(12_000)), day("2026-10-29")).unwrap();
+        assert_eq!(read_note(&dir).pieces[0].days(), grown(Some(p), 3, 12_000, day("2026-10-29")));
+        // A day written by hand as a string reads too.
+        fs::write(dir.join(FILE), "[pieces.2026-10-26_2200]\nms = 9000\ndays = [{ day = \"2026-10-30\", chars = 4, ms = 5 }]\n").unwrap();
+        assert_eq!(read_note(&dir).pieces[0].days(), [Day { day: day("2026-10-30"), chars: 4, ms: 5 }]);
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -548,7 +726,7 @@ mod tests {
         make(&root.join("二"), &toml::Table::new()).unwrap();
         fs::create_dir_all(root.join(".hidden")).unwrap();
         fs::write(root.join("loose.txt"), "not in a notebook").unwrap();
-        bind(&root.join("一"), "2026-10-27_0905", "新しい", None).unwrap();
+        bind(&root.join("一"), "2026-10-27_0905", "新しい", None, day("2026-10-27")).unwrap();
         let notes = scan(&root);
         let names: Vec<&str> = notes.iter().map(|n| n.name.as_str()).collect();
         assert_eq!(names, ["一", "二"]);
@@ -565,7 +743,7 @@ mod tests {
 
         // A broken fude.toml is said, and the pieces are still read.
         fs::write(root.join("三").join(FILE), "[note\n").unwrap();
-        bind(&root.join("三"), "a", "字", None).unwrap();
+        bind(&root.join("三"), "a", "字", None, day("2026-10-27")).unwrap();
         let n = read_note(&root.join("三"));
         assert!(n.warn.is_some() && n.pieces.len() == 1);
         assert_eq!(scan(&root.join("none")), Vec::new());
@@ -577,11 +755,11 @@ mod tests {
         let root = scratch("worker");
         let mut w = Worker::start(root.clone(), || {});
         let dir = root.join("ノート");
-        w.send(Job::Bind { dir: dir.clone(), stem: "2026-10-27_0905".into(), text: "書いた".into(), ms: Some(3) });
+        w.send(Job::Bind { dir: dir.clone(), stem: "2026-10-27_0905".into(), text: "書いた".into(), rec: Some(timed(3)) });
         w.send(Job::Rename { from: root.join("none"), to: root.join("x") });
         w.finish();
         let done: Vec<Done> = std::iter::from_fn(|| w.done()).collect();
-        assert!(matches!(&done[0], Done::Note(n) if n.pieces.len() == 1 && n.pieces[0].ms == Some(3)), "{done:?}");
+        assert!(matches!(&done[0], Done::Note(n) if n.pieces.len() == 1 && n.pieces[0].ms() == Some(3)), "{done:?}");
         assert!(matches!(&done[1], Done::Failed(_)), "{done:?}");
         assert!(matches!(&done[2], Done::Scanned(n) if n.len() == 1), "{done:?}");
         let _ = fs::remove_dir_all(&root);

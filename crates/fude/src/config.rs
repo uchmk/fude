@@ -1,7 +1,8 @@
 //! fude's own settings, config.toml in fude's folder (`app_dir`): `[write]`
-//! is how the band looks and counts, `[note]` the limits and the no-erase
-//! mode (the defaults of a notebook's own fude.toml, once there are
-//! notebooks). A value that is not understood is said and left as it was.
+//! is how the band looks and counts, `[note]` the paper, the limits, the
+//! no-erase mode and the topics (the defaults of a notebook's own
+//! fude.toml; the list of topics is only a notebook's). A value that is not
+//! understood is said and left as it was.
 
 use std::path::{Path, PathBuf};
 
@@ -77,6 +78,41 @@ words! {
     Hang { In = "in", Out = "out", Off = "off" }
 }
 
+words! {
+    /// The letters of the clean copy.
+    Face { Mincho = "mincho", Gothic = "gothic" }
+}
+
+words! {
+    /// The topic shown over a new piece: the notebook's list in its order
+    /// (the one after the last piece's), drawn by lot, or none.
+    Topic { Order = "order", Random = "random", Off = "none" }
+}
+
+impl Topic {
+    /// The topic for a new piece from `list`, the last piece's being `last`;
+    /// `seed` draws the lot, which is not the last again while there is
+    /// another.
+    pub fn pick(self, list: &[String], last: Option<&str>, seed: u64) -> Option<String> {
+        let n = list.len();
+        let at = |s: &str| list.iter().position(|t| t == s);
+        let i = match self {
+            _ if n == 0 => return None,
+            Topic::Off => return None,
+            Topic::Order => last.and_then(at).map_or(0, |i| (i + 1) % n),
+            Topic::Random => {
+                let i = (seed % n as u64) as usize;
+                if n > 1 && last.and_then(at) == Some(i) {
+                    (i + 1) % n
+                } else {
+                    i
+                }
+            }
+        };
+        Some(list[i].clone())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
     pub font_size: u32,
@@ -85,6 +121,9 @@ pub struct Config {
     pub show: Show,
     pub time_start: TimeStart,
     pub on_continue: OnContinue,
+    pub face: Face,
+    /// The clean copy shows how fast each line was written.
+    pub pace: bool,
     /// Letters; 0 is none.
     pub char_limit: u32,
     /// Minutes; 0 is none.
@@ -105,6 +144,7 @@ pub struct Config {
     /// Letters to a line of a sheet that is not a grid; 0 is as the window
     /// fits.
     pub wrap: u32,
+    pub topic: Topic,
 }
 
 impl Default for Config {
@@ -116,6 +156,8 @@ impl Default for Config {
             show: Show::default(),
             time_start: TimeStart::default(),
             on_continue: OnContinue::default(),
+            face: Face::default(),
+            pace: true,
             char_limit: 0,
             time_limit: 0,
             no_erase: false,
@@ -128,6 +170,7 @@ impl Default for Config {
             hang: Hang::default(),
             merge: true,
             wrap: 0,
+            topic: Topic::default(),
         }
     }
 }
@@ -207,6 +250,8 @@ impl Config {
             ("write", "show") => word(value, Show::parse, Show::ALL, &mut self.show),
             ("write", "time_start") => word(value, TimeStart::parse, TimeStart::ALL, &mut self.time_start),
             ("write", "on_continue") => word(value, OnContinue::parse, OnContinue::ALL, &mut self.on_continue),
+            ("write", "face") => word(value, Face::parse, Face::ALL, &mut self.face),
+            ("write", "pace") => switch(value, &mut self.pace),
             ("note", "char_limit") => number(value, CHAR_LIMIT, &mut self.char_limit),
             ("note", "time_limit") => number(value, TIME_LIMIT, &mut self.time_limit),
             ("note", "no_erase") => switch(value, &mut self.no_erase),
@@ -219,6 +264,8 @@ impl Config {
             ("note", "hang") => word(value, Hang::parse, Hang::ALL, &mut self.hang),
             ("note", "merge") => switch(value, &mut self.merge),
             ("note", "wrap") => number(value, WRAP, &mut self.wrap),
+            ("note", "topic") => word(value, Topic::parse, Topic::ALL, &mut self.topic),
+            ("note", "topics") => Err(format!("is a notebook's own, in its {}", crate::notebook::FILE)),
             _ => Err("not a setting of fude".into()),
         }
     }
@@ -230,17 +277,43 @@ pub fn overlay(global: &Config, note: &toml::Table) -> (Config, Vec<String>) {
     let mut c = *global;
     let mut warn = Vec::new();
     for (key, value) in note {
-        if let Err(e) = c.apply("note", key, value) {
+        let done = match key.as_str() {
+            "topics" => topics_in(value).map(drop),
+            _ => c.apply("note", key, value),
+        };
+        if let Err(e) = done {
             warn.push(format!("{}: note.{key}: {e}", crate::notebook::FILE));
         }
     }
     (c, warn)
 }
 
+/// A notebook's topics, `[note] topics` in its `fude.toml` (none when it is
+/// not a list of words).
+pub fn topics(note: &toml::Table) -> Vec<String> {
+    note.get("topics").and_then(|v| topics_in(v).ok()).unwrap_or_default()
+}
+
+/// `topics = ["…", …]`, the blank ones left out.
+fn topics_in(v: &toml::Value) -> Result<Vec<String>, String> {
+    let list = v.as_array().ok_or_else(|| format!("{v} is not a list"))?;
+    let words = list.iter().map(|t| t.as_str().map(str::trim)).collect::<Option<Vec<_>>>();
+    let words = words.ok_or_else(|| format!("{v} is not a list of words"))?;
+    Ok(words.into_iter().filter(|t| !t.is_empty()).map(str::to_owned).collect())
+}
+
+/// `list` as a TOML value, for `[note] topics`.
+pub fn topics_value(list: &[String]) -> toml::Value {
+    toml::Value::Array(list.iter().cloned().map(toml::Value::String).collect())
+}
+
 /// `value` as TOML text, for `set_key`.
 pub fn toml_text(value: &toml::Value) -> String {
     match value {
         toml::Value::String(s) => ito_common::quote(s),
+        toml::Value::Array(a) if a.iter().all(|v| v.is_str()) => {
+            ito_common::quote_list(&a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect::<Vec<_>>())
+        }
         v => v.to_string(),
     }
 }
@@ -279,6 +352,8 @@ point = "middle"
 show = "chars"
 time_start = "open"
 on_continue = "free"
+face = "gothic"
+pace = false
 colour = "red"
 
 [note]
@@ -294,6 +369,8 @@ indent = false
 hang = "out"
 merge = "yes"
 wrap = 30
+topic = "random"
+topics = ["朝"]
 "#;
         let (c, warn) = parse(text).unwrap();
         assert_eq!(c.font_size, 120);
@@ -304,7 +381,9 @@ wrap = 30
         assert_eq!((c.paper, c.paper_dir, c.rule), (Paper::Graph, Dir::Horizontal, Rule::Ao));
         assert_eq!((c.cols, c.rows, c.wrap), (5, 10, 30));
         assert_eq!((c.indent, c.hang, c.merge), (false, Hang::Out, true));
-        assert_eq!(warn.len(), 5, "{warn:?}");
+        assert_eq!((c.face, c.pace, c.topic), (Face::Gothic, false, Topic::Random));
+        // The list of topics is a notebook's own.
+        assert_eq!(warn.len(), 6, "{warn:?}");
         let said = |a: &str, b: &str| warn.iter().any(|w| w.contains(a) && w.contains(b));
         assert!(said("font_size", "120 is used") && said("point", "\"start\"") && said("colour", "not a setting"), "{warn:?}");
         assert!(parse("[write").is_err());
@@ -325,14 +404,36 @@ char_limit = 400
         let note: toml::Table = "paper = \"ruled\"
 font_size = 60
 cols = 3
+topic = \"none\"
+topics = [\"朝の音\", \" \", \"窓\"]
 "
         .parse()
         .unwrap();
         let (c, warn) = overlay(&global, &note);
-        assert_eq!((c.font_size, c.paper, c.char_limit, c.cols), (50, Paper::Ruled, 400, 5));
+        assert_eq!((c.font_size, c.paper, c.char_limit, c.cols, c.topic), (50, Paper::Ruled, 400, 5, Topic::Off));
+        assert_eq!(topics(&note), ["朝の音", "窓"]);
         assert_eq!(warn.len(), 2, "{warn:?}");
         assert!(warn.iter().all(|w| w.starts_with("fude.toml: note.")), "{warn:?}");
         assert_eq!(overlay(&global, &toml::Table::new()), (global, vec![]));
+        let bad: toml::Table = "topics = [\"朝\", 3]".parse().unwrap();
+        assert_eq!(overlay(&global, &bad).1.len(), 1);
+        assert!(topics(&bad).is_empty());
+    }
+
+    #[test]
+    fn a_topic_is_the_next_one_or_drawn_by_lot() {
+        let list: Vec<String> = ["朝", "窓", "音"].map(String::from).to_vec();
+        let pick = |t: Topic, last, seed| t.pick(&list, last, seed);
+        assert_eq!(pick(Topic::Order, None, 7).as_deref(), Some("朝"));
+        assert_eq!(pick(Topic::Order, Some("窓"), 7).as_deref(), Some("音"));
+        assert_eq!(pick(Topic::Order, Some("音"), 7).as_deref(), Some("朝"));
+        assert_eq!(pick(Topic::Order, Some("消した"), 7).as_deref(), Some("朝"));
+        assert_eq!(pick(Topic::Random, None, 4).as_deref(), Some("窓"));
+        assert_eq!(pick(Topic::Random, Some("窓"), 4).as_deref(), Some("音"));
+        assert_eq!(pick(Topic::Off, None, 4), None);
+        assert_eq!(Topic::Order.pick(&[], None, 4), None);
+        let one = vec!["朝".to_owned()];
+        assert_eq!(Topic::Random.pick(&one, Some("朝"), 9).as_deref(), Some("朝"));
     }
 
     #[test]
@@ -346,6 +447,10 @@ cols = 3
         let (c, warn) = read(&path).unwrap();
         assert!(warn.is_empty(), "{warn:?}");
         assert_eq!((c.dir, c.char_limit, c.no_erase), (Dir::Vertical, 400, true));
+        let note = dir.join("fude.toml");
+        write(&note, "note", "topics", &topics_value(&["朝の\"音\"".into(), "窓".into()])).unwrap();
+        let t: toml::Table = std::fs::read_to_string(&note).unwrap().parse().unwrap();
+        assert_eq!(topics(t["note"].as_table().unwrap()), ["朝の\"音\"", "窓"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
