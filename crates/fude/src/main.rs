@@ -3,11 +3,13 @@
 //! What is wired here: the window (its place kept, its own title bar with the
 //! bell and the notice list), common.toml's theme, language and scale, the
 //! keymap, the settings screen, the key list, the palette, `--keys`,
-//! `--version` / `--help`, and F12 (the bug report). The writing band, the
-//! clean copy and the notebooks come next (TODO.md).
+//! `--version` / `--help`, F12 (the bug report), and the writing band with
+//! its draft. The clean copy and the notebooks come next (TODO.md).
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod band;
+mod config;
 mod fonts;
 mod help;
 mod i18n;
@@ -15,15 +17,20 @@ mod icon;
 mod keymap;
 mod prefs;
 mod settings;
+mod vertical;
+mod write;
 
 use std::cell::Cell;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use ito_common::window::{Saved, Tracker};
 use ito_keyscript::{Do, Runner, Step};
 use ito_notices::Kind;
 
+use crate::band::{Band, Hit};
+use crate::config::{Dir, TimeStart};
 use crate::keymap::{Act, Keymap};
 use crate::prefs::Prefs;
 
@@ -34,6 +41,12 @@ const REPO: &str = "https://github.com/uchmk/fude";
 
 /// The most notices the bell keeps; the oldest go first.
 const NOTICES: usize = 100;
+
+/// The draft is written this long after the last edit, in seconds.
+const DRAFT_AFTER: f64 = 1.0;
+
+/// The pointer moving this far, in points, brings the bar back after typing.
+const STIR: f32 = 6.0;
 
 const USAGE: &str = "\
 fude — a one-line editor for writing
@@ -48,7 +61,7 @@ usage: fude [--keys SCRIPT] [--version | --help]
 /// What fills the window under the bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
-    /// The writing (the band comes in 0.3.0).
+    /// The writing band.
     Write,
     Settings,
     /// The key list, over the writing.
@@ -93,6 +106,21 @@ pub struct App {
     /// The `--keys` script, and what it asked of the frame loop.
     script: Option<Runner>,
     todo: Vec<Do>,
+    /// The line being written, and what the input method is composing at
+    /// its cursor.
+    band: Band,
+    preedit: String,
+    /// The last edit or change of the composition, in egui's time.
+    typed_at: f64,
+    /// Typing hushes the bar until the pointer moves; where it was then.
+    calm: bool,
+    calm_at: Option<egui::Pos2>,
+    /// draft.toml in the state folder (none for a script), and when it is
+    /// next to be written, in egui's time.
+    draft: Option<ito_common::kept::Writer>,
+    draft_due: Option<f64>,
+    /// The band was on the screen in the last frame.
+    on_band: bool,
 }
 
 /// What the palette can do.
@@ -112,6 +140,8 @@ impl App {
         let lang = i18n::resolve(lang_asked.as_deref());
         let (table, errors) = i18n::table(&lang);
         let (keymap, warnings) = Keymap::load(prefs.keymap.as_deref());
+        let mut band = Band::default();
+        band.limits = prefs.config.limits();
         let mut app = Self {
             table,
             lang,
@@ -131,6 +161,14 @@ impl App {
             tracker: None,
             script: None,
             todo: Vec::new(),
+            band,
+            preedit: String::new(),
+            typed_at: f64::NEG_INFINITY,
+            calm: false,
+            calm_at: None,
+            draft: None,
+            draft_due: None,
+            on_band: false,
         };
         for w in errors.iter().chain(&warnings) {
             app.say(Kind::Warn, w);
@@ -158,13 +196,18 @@ impl App {
     /// What `--keys` writes for `<State:name>` and at the end.
     fn report(&self) -> String {
         let scale = (self.prefs.common.scale_or_one() * 100.0).round();
+        let hit: Vec<&str> = self.band.hit().iter().map(|h| if *h == Hit::Chars { "chars" } else { "time" }).collect();
         format!(
-            "screen: {}\nlang: {}\nscale: {scale}%\npalette: {}\nnotices: {}\nsettings_page: {}\n",
+            "screen: {}\nlang: {}\nscale: {scale}%\npalette: {}\nnotices: {}\nsettings_page: {}\nchars: {}\nback: {}\nhit: {}\ntext: {:?}\n",
             self.screen.name(),
             self.lang,
             self.palette.is_some(),
             self.notices.len(),
             self.prefs.state.page,
+            self.band.count(),
+            self.band.back(),
+            hit.join(" "),
+            self.band.text(),
         )
     }
 
@@ -248,7 +291,15 @@ impl App {
         }
         // The files' warnings last while the files are as they are: each is
         // told once, and again if it comes back after going.
-        let now: Vec<String> = self.prefs.common_warn.iter().chain(&self.prefs.theme_warn).chain(&self.prefs.theme_err).cloned().collect();
+        let now: Vec<String> = self
+            .prefs
+            .common_warn
+            .iter()
+            .chain(&self.prefs.theme_warn)
+            .chain(&self.prefs.theme_err)
+            .chain(&self.prefs.config_warn)
+            .cloned()
+            .collect();
         for w in now.iter().filter(|w| !self.warned.contains(w)).cloned().collect::<Vec<_>>() {
             self.say(Kind::Warn, &w);
         }
@@ -486,16 +537,118 @@ impl App {
         ctx.open_url(egui::OpenUrl::new_tab(url));
     }
 
-    /// Where the writing band goes: for now, the keys that open the rest.
-    fn write_screen(&self, ui: &mut egui::Ui) {
-        let c = ito_theme::colors();
-        let none = || "—".to_owned();
-        let settings = self.keymap.hint(Act::Settings).unwrap_or_else(none);
-        let help = self.keymap.hint(Act::Help).unwrap_or_else(none);
-        let t = &self.table;
-        let text = t.trf("write.placeholder", &[&settings, &help]);
-        let r = ui.max_rect();
-        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, text, egui::FontId::proportional(15.0), c.dim);
+    /// The band takes the keys and the input method: on the writing, and
+    /// not while the palette, the notices or the Keys page have them.
+    fn typing_here(&self) -> bool {
+        self.screen == Screen::Write && self.palette.is_none() && !self.bell_open && !self.prefs.keys_edit.busy()
+    }
+
+    /// The input method at the band's input point, set the way the band runs.
+    fn ime(&self) -> ito_ime::Ime {
+        let orientation = match self.prefs.config.dir {
+            Dir::Horizontal => ito_ime::Orientation::Horizontal,
+            Dir::Vertical => ito_ime::Orientation::Vertical,
+        };
+        ito_ime::Ime::new(egui::Id::new("fude-band")).orientation(orientation)
+    }
+
+    /// The clock runs only while the band is on the screen, and limits
+    /// changed in the settings are the band's at once. Leaving the band
+    /// writes the draft.
+    fn follow_band(&mut self, now: Instant, time: f64) {
+        let on = self.screen == Screen::Write;
+        let limits = self.prefs.config.limits();
+        if on == self.on_band && limits == self.band.limits {
+            return;
+        }
+        self.band.pause(now);
+        self.band.limits = limits;
+        if on {
+            self.band.enter(now, self.prefs.config.time_start == TimeStart::Open);
+        } else {
+            self.draft_due = Some(time);
+        }
+        self.on_band = on;
+    }
+
+    /// Typing hushes the bar; the pointer moving brings it back.
+    fn follow_calm(&mut self, ctx: &egui::Context) {
+        if !self.calm {
+            return;
+        }
+        let at = ctx.input(|i| i.pointer.latest_pos());
+        let stirred = match (at, self.calm_at) {
+            (Some(a), Some(b)) => a.distance(b) > STIR,
+            (a, b) => a.is_some() != b.is_some(),
+        };
+        if stirred || self.screen != Screen::Write {
+            self.calm = false;
+        }
+    }
+
+    /// draft.toml, once the edits have rested a moment. The file is written
+    /// off the UI thread.
+    fn keep_draft(&mut self, ctx: &egui::Context, time: f64) {
+        let Some(due) = self.draft_due else { return };
+        if time < due {
+            ctx.request_repaint_after_secs((due - time) as f32);
+            return;
+        }
+        self.draft_due = None;
+        if let Some(w) = &self.draft {
+            w.save_toml(&self.band.kept(Instant::now()));
+        }
+    }
+
+    /// The band: what is typed, committed and pasted goes onto it when
+    /// `typing`, and it is drawn.
+    fn write_screen(&mut self, ui: &mut egui::Ui, typing: bool) {
+        let ctx = ui.ctx().clone();
+        let rect = ui.max_rect();
+        let now = Instant::now();
+        let time = ctx.input(|i| i.time);
+        let config = self.prefs.config;
+        if typing {
+            let f = self.ime().frame(ui, write::caret_at(rect, &config), self.band.cursor() as u64);
+            let preedit = if f.composing { f.preedit } else { String::new() };
+            let mut typed = preedit != self.preedit;
+            if !preedit.is_empty() && !self.band.started() && config.time_start == TimeStart::First {
+                self.band.start(now);
+            }
+            self.preedit = preedit;
+            // The input method's commits come as `Ime::Commit` alone, so the
+            // events are read here rather than the frame's commits.
+            let events = ctx.input(|i| i.events.clone());
+            let mut edited = false;
+            for e in events.iter().filter_map(|e| write::edit_of(e, config.dir)) {
+                edited |= self.band.edit(e, now, config.no_erase);
+            }
+            if edited {
+                self.draft_due = Some(time + DRAFT_AFTER);
+            }
+            typed |= edited;
+            if typed {
+                self.typed_at = time;
+                self.calm = true;
+                self.calm_at = ctx.input(|i| i.pointer.latest_pos());
+            }
+        } else {
+            self.preedit.clear();
+        }
+        if self.band.running() {
+            self.band.tick(now);
+        }
+        let settings_key = self.keymap.hint(Act::Settings).unwrap_or_else(|| "—".to_owned());
+        let view = write::View {
+            band: &self.band,
+            config: &config,
+            preedit: &self.preedit,
+            now,
+            typed_at: self.typed_at,
+            settings_key: &settings_key,
+            table: &self.table,
+        };
+        write::draw(ui, rect, &view);
     }
 }
 
@@ -507,6 +660,11 @@ impl eframe::App for App {
         }
         self.script(&ctx);
         self.follow_prefs(&ctx);
+        let typing = self.typing_here();
+        // Enter, Backspace and the arrows are the input method's while it composes.
+        if typing {
+            self.ime().swallow_keys(&ctx);
+        }
         // While the Keys page takes a key, every key is the key.
         if !self.prefs.keys_edit.busy() {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F12)) {
@@ -516,19 +674,29 @@ impl eframe::App for App {
             self.keymap_keys(&ctx);
             self.help_keys(&ctx);
         }
-        egui::Panel::top("titlebar")
-            .exact_size(ito_titlebar::HEIGHT)
-            .frame(egui::Frame::NONE.fill(ito_theme::colors().bg))
-            .show(ui, |ui| self.title_bar(ui));
+        let (now, time) = (Instant::now(), ctx.input(|i| i.time));
+        self.follow_band(now, time);
+        self.follow_calm(&ctx);
+        let hush = ctx.animate_bool_with_time(egui::Id::new("fude-calm"), self.calm, 0.3);
+        egui::Panel::top("titlebar").exact_size(ito_titlebar::HEIGHT).frame(egui::Frame::NONE.fill(ito_theme::colors().bg)).show(
+            ui,
+            |ui| {
+                ui.multiply_opacity(1.0 - 0.85 * hush);
+                self.title_bar(ui);
+            },
+        );
+        // The screen may have changed under the keys just now.
+        let typing = typing && self.typing_here();
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(ito_theme::colors().bg)).show(ui, |ui| match self.screen {
             Screen::Settings => settings::show(ui, self),
-            Screen::Write => self.write_screen(ui),
+            Screen::Write => self.write_screen(ui, typing),
             Screen::Help => {
-                self.write_screen(ui);
+                self.write_screen(ui, false);
                 let r = ui.max_rect();
                 help::show(ui, self, r);
             }
         });
+        self.keep_draft(&ctx, time);
         self.notice_list(&ctx);
         self.command_palette(&ctx);
         if self.quit {
@@ -540,11 +708,17 @@ impl eframe::App for App {
         }
     }
 
-    /// The window's place is written as it closes, and a window that closes
-    /// while a script runs says so in the done file.
+    /// The window's place and the draft are written as it closes, and a
+    /// window that closes while a script runs says so in the done file.
     fn on_exit(&mut self) {
         if let Some(t) = &mut self.tracker {
             t.close(None);
+        }
+        if let Some(w) = &self.draft {
+            let saved = toml::to_string(&self.band.kept(Instant::now())).map_err(|e| e.to_string()).and_then(|text| w.save_now(text));
+            if let Err(e) = saved {
+                ito_console::err(&format!("fude: the draft: {e}\n"));
+            }
         }
         let Some(script) = &mut self.script else { return };
         if !script.running() {
@@ -631,6 +805,9 @@ fn main() -> eframe::Result {
     }
     // A script plays on a window that keeps no place, and leaves none.
     let saved = if script.is_none() { Saved::load(ito_common::state_dir("fude")) } else { Saved::load(None) };
+    // Nor does it go on from the draft, or write one.
+    let draft =
+        ito_common::state_dir("fude").filter(|_| script.is_none()).map(|d| ito_common::kept::Writer::new(d.join("draft.toml"), true));
     let viewport = egui::ViewportBuilder::default()
         .with_title("fude")
         .with_inner_size([1280.0, 800.0])
@@ -653,6 +830,11 @@ fn main() -> eframe::Result {
             cc.egui_ctx.set_zoom_factor(prefs.common.scale_or_one());
             let mut app = App::with(prefs);
             app.tracker = saved.tracker();
+            // The writing goes on where it was left.
+            if let Some(k) = draft.as_ref().and_then(|w| ito_common::kept::read::<band::Kept>(w.path())) {
+                app.band = Band::from_kept(k, app.prefs.config.limits());
+            }
+            app.draft = draft;
             app.script = script.map(|steps| {
                 let mut r = Runner::new(steps, done);
                 r.watch(cc.egui_ctx.clone());
@@ -684,9 +866,15 @@ mod tests {
 
     /// One frame of `a` with `events`, as eframe would run it.
     fn frame(ctx: &egui::Context, a: &mut App, events: Vec<egui::Event>) {
+        frame_at(ctx, a, events, None);
+    }
+
+    /// One frame at `time` in seconds (egui's own step when none).
+    fn frame_at(ctx: &egui::Context, a: &mut App, events: Vec<egui::Event>, time: Option<f64>) {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1200.0, 800.0))),
             events,
+            time,
             ..Default::default()
         };
         let mut out = ctx.run_ui(input, |ui| eframe::App::ui(a, ui, &mut eframe::Frame::_new_kittest()));
@@ -739,5 +927,62 @@ mod tests {
         assert_eq!(a.keymap.act(ito_keys::Key::parse("<F2>").unwrap()), Some(Act::Help));
         assert_eq!(a.notices.len(), 1, "{:?}", a.notices.iter().map(|n| &n.title).collect::<Vec<_>>());
         assert_eq!(a.notices[0].kind, Kind::Warn);
+    }
+
+    /// Letters, the input method's commits and pastes go onto the band;
+    /// Enter ends a paragraph (not at the start), ← goes back to fix a
+    /// letter, and the report says where the cursor is. The no-erase mode
+    /// keeps what is written.
+    #[test]
+    fn typing_goes_onto_the_band() {
+        let ctx = egui::Context::default();
+        let mut a = App::with(Prefs::empty());
+        let none = egui::Modifiers::NONE;
+        frame(&ctx, &mut a, key(egui::Key::Enter, none));
+        assert_eq!(a.band.text(), "", "no paragraph before a letter");
+        frame(&ctx, &mut a, vec![egui::Event::Text("ab".into()), egui::Event::Ime(egui::ImeEvent::Commit("かな".into()))]);
+        frame(&ctx, &mut a, key(egui::Key::Enter, none));
+        frame(&ctx, &mut a, vec![egui::Event::Paste("x\ty".into())]);
+        assert_eq!(a.band.text(), "abかな\nx y", "a tab pasted is a space");
+        frame(&ctx, &mut a, key(egui::Key::ArrowLeft, none));
+        frame(&ctx, &mut a, key(egui::Key::Backspace, none));
+        assert_eq!(a.band.text(), "abかな\nxy");
+        let report = a.report();
+        assert!(report.contains("back: 1\n") && report.contains("text: \"abかな\\nxy\"\n"), "{report}");
+        a.prefs.config.no_erase = true;
+        frame(&ctx, &mut a, key(egui::Key::Backspace, none));
+        frame(&ctx, &mut a, key(egui::Key::ArrowLeft, none));
+        assert_eq!((a.band.text().as_str(), a.band.back()), ("abかな\nxy", 1), "nothing is erased or moved");
+    }
+
+    /// The band is written to draft.toml once the edits rest, and the
+    /// draft read back makes the same band.
+    #[test]
+    fn the_draft_is_written_and_goes_on() {
+        let dir = std::env::temp_dir().join(format!("fude-draft-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = egui::Context::default();
+        let mut a = App::with(Prefs::empty());
+        a.draft = Some(ito_common::kept::Writer::new(dir.join("draft.toml"), true));
+        frame_at(&ctx, &mut a, vec![egui::Event::Text("書きかけ".into())], Some(1.0));
+        frame_at(&ctx, &mut a, key(egui::Key::ArrowLeft, egui::Modifiers::NONE), Some(1.2));
+        assert!(a.draft_due.is_some(), "not yet: the edits have not rested");
+        frame_at(&ctx, &mut a, Vec::new(), Some(1.2 + DRAFT_AFTER));
+        assert!(a.draft_due.is_none());
+        let path = dir.join("draft.toml");
+        let mut kept = None;
+        for _ in 0..500 {
+            kept = ito_common::kept::read::<band::Kept>(&path).filter(|k| k.back == 1);
+            if kept.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let kept = kept.expect("draft.toml is written");
+        let again = Band::from_kept(kept, a.prefs.config.limits());
+        assert_eq!((again.text(), again.back()), ("書きかけ".to_owned(), 1));
+        assert!(again.started() && !again.running(), "the clock stands until the band is shown");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

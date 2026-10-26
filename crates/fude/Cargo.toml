@@ -20,42 +20,47 @@ name = "make-bugform"
 test = true
 
 [build-dependencies]
-ito-winres = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-winres = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 
 [dependencies]
 # Every ito crate at the same rev. scripts/ito-first.py says which crates an
 # app must have and which it must not replace; what ito lacks, ask ito for.
-ito-common = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24", features = ["clock", "egui"] }
-ito-i18n = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24", features = ["edit"] }
-ito-theme = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-common = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a", features = ["clock", "egui"] }
+ito-i18n = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a", features = ["edit"] }
+ito-theme = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # The settings screen: language / clock / theme pages, keys_page, notify_page, update_card.
-ito-prefs = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
-ito-keys = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24", features = ["egui"] }
-ito-keymap = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-prefs = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
+ito-keys = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a", features = ["egui"] }
+ito-keymap = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # `--keys "<script>"`: the real window driven without a person.
-ito-keyscript = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-keyscript = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
+# The IME at the band's input point: the preedit, the held commit, the candidate window.
+ito-ime = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # `?` / F1: the key help.
-ito-help = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-help = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # System notification, sound, webhook.
-ito-notify = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-notify = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # F12: an issue form filled with the version, OS and what the app knows.
-ito-bugreport = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-bugreport = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # The window's own title bar (drag, caption buttons, the palette box, the bell).
-ito-titlebar = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-titlebar = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # The list the bell opens.
-ito-notices = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-notices = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # Ctrl+Shift+P. Optional: drop it when the app has no commands to list.
-ito-palette = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-palette = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # `fude.com` and the answers `out` and `err` write.
-ito-console = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-console = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # The settings' Advanced page opens the folders in the file manager.
-ito-openin = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-openin = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # eframe's own defaults, but for `winit/default`: that draws the title on
 # Wayland's window frame with ab_glyph, which brings the unmaintained ttf-parser.
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "links", "wayland", "web_screen_reader", "wgpu", "x11"] }
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita-notitle"] }
 egui = "0.36"
+# The draft and config.toml, read into structs.
+serde = { version = "1", features = ["derive"] }
+toml = "1.1"
 
 [dev-dependencies]
 # TESTING.md -> the lanes' check tables (examples/make-testcheck.rs).
-ito-testcheck = { git = "https://github.com/uchmk/ito", rev = "ba61f153ec714f3372f898052329999f9e626b24" }
+ito-testcheck = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }

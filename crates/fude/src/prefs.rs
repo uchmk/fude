@@ -1,6 +1,7 @@
 //! What the settings screen reads and writes (ito's `docs/common-spec.md`):
 //! common.toml (the language, the scale, the theme and the clock, shared by
-//! every uchmk app), the user's themes and fude's keymap.toml. The files are
+//! every uchmk app), the user's themes, fude's keymap.toml and its own
+//! config.toml. The files are
 //! watched every 2 s and written on threads of their own; what was read
 //! comes back as a [`Reload`], which [`Prefs::pump`] folds in. The UI thread
 //! never touches the disk.
@@ -13,6 +14,8 @@ use ito_common::{common_path, edit_common, themes_dir, write_atomic, Common, Com
 use ito_prefs::State;
 use ito_theme::Theme;
 
+use crate::config::{self, Config};
+
 /// How often the files are looked at.
 const WATCH: Duration = Duration::from_secs(2);
 
@@ -23,6 +26,7 @@ pub enum Reload {
     /// keymap.toml's text (`None` when there is none), or why it could not
     /// be read.
     Keymap(Result<Option<String>, String>),
+    Config(Result<(Config, Vec<String>), String>),
     Failed(String),
 }
 
@@ -43,6 +47,9 @@ fn read_keymap(path: &Path) -> Result<Option<String>, String> {
 /// Keys set fast one after another: each reads what the one before wrote,
 /// and their keymaps are sent back in the same order.
 static KEYMAP_ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The same for config.toml.
+static CONFIG_ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Make `edits` in the keymap.toml at `path` (none yet is an empty one),
 /// written only when that changes it. Call it off the UI thread.
@@ -92,6 +99,11 @@ pub struct Prefs {
     pub keymap_new: Option<Option<String>>,
     /// The Keys page's search and the keys it is taking.
     pub keys_edit: ito_prefs::KeysEdit,
+    /// config.toml, and what in it was not understood.
+    pub config: Config,
+    pub config_warn: Vec<String>,
+    /// The Writing page's number fields while they are typed in.
+    pub drafts: ito_prefs::Drafts,
     tx: Sender<Reload>,
     rx: Receiver<Reload>,
     wake: Option<egui::Context>,
@@ -120,6 +132,9 @@ impl Prefs {
             keymap: None,
             keymap_new: None,
             keys_edit: ito_prefs::KeysEdit::default(),
+            config: Config::default(),
+            config_warn: Vec::new(),
+            drafts: ito_prefs::Drafts::new(),
             tx,
             rx,
             wake: None,
@@ -129,7 +144,7 @@ impl Prefs {
         }
     }
 
-    /// common.toml, the themes and keymap.toml in `base`.
+    /// common.toml, the themes, keymap.toml and config.toml in `base`.
     pub fn load(base: Option<PathBuf>) -> Self {
         let mut p = Self::empty();
         if let Some(b) = &base {
@@ -144,6 +159,10 @@ impl Prefs {
                 Ok(t) => p.keymap = t,
                 Err(e) => p.keymap_new = Some(Some(e)),
             }
+            match config::read(&config::path(b)) {
+                Ok((c, w)) => (p.config, p.config_warn) = (c, w),
+                Err(e) => p.config_warn = vec![e],
+            }
         }
         p.base = base;
         p
@@ -156,8 +175,8 @@ impl Prefs {
         let os_ctx = ctx.clone();
         self.os_light = ito_common::OsLight::watch(WATCH, move || os_ctx.request_repaint());
         let Some(base) = self.base.clone() else { return };
-        let (common, themes, keymap) = (common_path(&base), themes_dir(&base), keymap_path(&base));
-        let mut paths = vec![common.clone(), themes.clone(), keymap.clone()];
+        let (common, themes, keymap, conf) = (common_path(&base), themes_dir(&base), keymap_path(&base), config::path(&base));
+        let mut paths = vec![common.clone(), themes.clone(), keymap.clone(), conf.clone()];
         // A theme file edited in place; one added or taken away changes the
         // folder's time.
         if let Ok(entries) = std::fs::read_dir(&themes) {
@@ -176,6 +195,9 @@ impl Prefs {
             }
             if changed.contains(&keymap) {
                 sent &= tx.send(Reload::Keymap(read_keymap(&keymap))).is_ok();
+            }
+            if changed.contains(&conf) {
+                sent &= tx.send(Reload::Config(config::read(&conf))).is_ok();
             }
             ctx.request_repaint();
             sent
@@ -204,6 +226,9 @@ impl Prefs {
                     self.keymap = t;
                     self.keymap_new = Some(None);
                 }
+                Reload::Config(Ok((c, w))) => (self.config, self.config_warn) = (c, w),
+                // Unreadable: the settings stay as they are.
+                Reload::Config(Err(e)) => self.config_warn = vec![e],
                 Reload::Failed(e) => {
                     self.scale_wanted = None;
                     self.failed = Some(e);
@@ -288,6 +313,28 @@ impl Prefs {
         });
     }
 
+    /// `table.key = value` in force at once, and into config.toml on a
+    /// thread, which then reads it again. With no folder it stays in memory.
+    pub fn config_change(&mut self, table: &'static str, key: &'static str, value: toml::Value, no_folder: &str) {
+        if let Err(e) = self.config.apply(table, key, &value) {
+            self.config_warn = vec![format!("config.toml: {table}.{key}: {e}")];
+        }
+        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        let Some(base) = self.base.clone() else {
+            Self::send_back(&tx, &wake, Reload::Failed(no_folder.into()));
+            return;
+        };
+        std::thread::spawn(move || {
+            let _one = CONFIG_ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+            let path = config::path(&base);
+            let r = match config::write(&path, table, key, &value) {
+                Ok(()) => Reload::Config(config::read(&path)),
+                Err(e) => Reload::Failed(e),
+            };
+            Self::send_back(&tx, &wake, r);
+        });
+    }
+
     /// Open common.toml (made empty first when there is none) with what the
     /// OS opens it with, on a thread.
     pub fn open_common(&self, no_folder: &str) {
@@ -328,8 +375,7 @@ impl Prefs {
         std::thread::spawn(move || {
             let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
             let mut failed = Vec::new();
-            let config = ito_common::app_dir("fude").map(|d| d.join("config.toml"));
-            for path in [common_path(&base), keymap_path(&base)].into_iter().chain(config) {
+            for path in [common_path(&base), keymap_path(&base), config::path(&base)] {
                 if path.exists() {
                     if let Err(e) = std::fs::rename(&path, aside(&path, stamp)) {
                         failed.push(format!("{}: {e}", path.display()));
