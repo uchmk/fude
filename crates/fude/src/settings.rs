@@ -2,19 +2,22 @@
 //! and the rows common to every uchmk app (the language, the scale, the
 //! theme) write common.toml. The Writing page is fude's own, written to
 //! config.toml: the clock and the band, the same in every notebook and in
-//! force at once, and the clean copy's letters and pace. The This notebook
+//! force at once, the sounds, and the clean copy's letters and pace. The This notebook
 //! page is the open notebook's, written to the fude.toml in its folder: the
 //! limits, no erasing, the paper its clean copy opens on, the grid, how a
 //! line of it is filled, and the topics. fude's keys are
 //! on the Keys page, written to keymap.toml.
+
+use std::time::Instant;
 
 use egui::{vec2, FontId, Sense, Stroke, StrokeKind, Ui};
 use ito_common::{themes_dir, CommonChange};
 use ito_i18n::Table;
 use ito_prefs::{keyed_row, section, sep, Drafts, KeyWords, Look, MoreWords, Page, Words};
 
-use crate::config::{self, Config, Dir, Face, Hang, OnContinue, Paper, Point, Rule, Show, TimeStart, Topic};
+use crate::config::{self, Config, Dir, Face, Hang, OnContinue, Paper, Point, Rule, Show, Tick, TimeStart, Topic};
 use crate::keymap::Keymap;
+use crate::sound::Cue;
 use crate::App;
 
 pub const GENERAL: usize = 0;
@@ -30,8 +33,19 @@ pub const ABOUT: usize = 6;
 const HAS: [Page; 4] = [Page::Theme, Page::App, Page::Keys, Page::Advanced];
 
 /// The Writing page's keys in config.toml, which the search finds too.
-const WRITE_KEYS: [&str; 8] =
-    ["write.time_start", "write.on_continue", "write.show", "write.point", "write.dir", "write.font_size", "write.face", "write.pace"];
+const WRITE_KEYS: [&str; 11] = [
+    "write.time_start",
+    "write.on_continue",
+    "write.show",
+    "write.point",
+    "write.dir",
+    "write.font_size",
+    "write.sound",
+    "write.volume",
+    "write.bell",
+    "write.face",
+    "write.pace",
+];
 
 /// The This notebook page's keys in fude.toml.
 const NOTE_KEYS: [&str; 14] = [
@@ -86,6 +100,10 @@ fn index<'a>(w: &'static Words, more: &'static MoreWords, kw: &'static KeyWords,
         (WRITE, tr("settings.point")),
         (WRITE, tr("settings.dir")),
         (WRITE, tr("settings.font_size")),
+        (WRITE, tr("settings.sound_section")),
+        (WRITE, tr("settings.sound")),
+        (WRITE, tr("settings.volume")),
+        (WRITE, tr("settings.bell")),
         (WRITE, tr("settings.copy")),
         (WRITE, tr("settings.face")),
         (WRITE, tr("settings.pace")),
@@ -233,6 +251,7 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     app.prefs.keymap_edit(key_edits, &no_folder);
     app.prefs.common_change(asked, &no_folder);
     let retopic = config_asked.iter().any(|(k, _)| k.starts_with("note.topic"));
+    let heard: Vec<&str> = config_asked.iter().map(|(k, _)| *k).collect();
     for (k, v) in config_asked {
         let (table, key) = k.split_once('.').expect("a key is table.key");
         app.prefs.config_change(table, key, v, &no_folder);
@@ -240,10 +259,27 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     if retopic {
         app.retopic();
     }
+    // A sound picked, or its volume, is heard once.
+    if let Some(cue) = heard.into_iter().find_map(|k| hear(k, &app.prefs.config)) {
+        app.sound(cue, Instant::now());
+    }
 }
 
-/// The Writing page: the clock, the band and the clean copy's letters and
-/// pace, the same in every notebook. What it asks for goes into config.toml.
+/// What `key` just set to as in `c` sounds like, if anything.
+fn hear(key: &str, c: &Config) -> Option<Cue> {
+    let some = if c.sound == Tick::Off { Cue::Bell } else { Cue::Letter };
+    let cue = match key {
+        "write.sound" => Cue::Letter,
+        "write.bell" => Cue::Bell,
+        "write.volume" => some,
+        _ => return None,
+    };
+    (cue != Cue::Bell || c.bell).then_some(cue)
+}
+
+/// The Writing page: the clock, the band, the sounds and the clean copy's
+/// letters and pace, the same in every notebook. What it asks for goes into
+/// config.toml.
 fn write_page(ui: &mut Ui, l: Look, t: &Table, c: Config) -> Vec<ConfigChange> {
     let tr = |k: &'static str| t.tr(k);
     let word = |w: &str| toml::Value::String(w.into());
@@ -297,6 +333,33 @@ fn write_page(ui: &mut Ui, l: Look, t: &Table, c: Config) -> Vec<ConfigChange> {
         let words = (tr("settings.font_size"), tr("settings.font_size_note"));
         if let Some(n) = pick(ui, l, "write.font_size", words, c.font_size, &sizes) {
             asked.push(("write.font_size", n.into()));
+        }
+    });
+    section(ui, l, tr("settings.sound_section"), |ui| {
+        let ticks = [
+            (Tick::Off, tr("settings.sound_none")),
+            (Tick::Typewriter, tr("settings.sound_typewriter")),
+            (Tick::Pencil, tr("settings.sound_pencil")),
+        ];
+        if let Some(v) = pick(ui, l, "write.sound", (tr("settings.sound"), tr("settings.sound_note")), c.sound, &ticks) {
+            asked.push(("write.sound", word(v.word())));
+        }
+        sep(ui, l);
+        if keyed_row(ui, l, "write.bell", tr("settings.bell"), tr("settings.bell_note"), |ui| ito_prefs::switch(ui, l, c.bell)) {
+            asked.push(("write.bell", (!c.bell).into()));
+        }
+        sep(ui, l);
+        // A volume from the file that is not in the list is put in it.
+        let mut volumes = vec![10, 25, 50, 75, 100];
+        if !volumes.contains(&c.volume) {
+            volumes.push(c.volume);
+            volumes.sort_unstable();
+        }
+        let volumes: Vec<(u32, String)> = volumes.into_iter().map(|n| (n, format!("{n}%"))).collect();
+        let volumes: Vec<(u32, &str)> = volumes.iter().map(|(n, w)| (*n, w.as_str())).collect();
+        let words = (tr("settings.volume"), tr("settings.volume_note"));
+        if let Some(n) = pick(ui, l, "write.volume", words, c.volume, &volumes) {
+            asked.push(("write.volume", n.into()));
         }
     });
     section(ui, l, tr("settings.copy"), |ui| {
@@ -638,8 +701,10 @@ mod tests {
     fn the_page_keys_are_settings() {
         let mut c = Config::default();
         let value = |k: &str| match k {
-            "note.no_erase" | "note.indent" | "note.merge" | "write.pace" => toml::Value::Boolean(true),
-            "note.char_limit" | "note.time_limit" | "write.font_size" | "note.cols" | "note.rows" | "note.wrap" => toml::Value::Integer(20),
+            "note.no_erase" | "note.indent" | "note.merge" | "write.pace" | "write.bell" => toml::Value::Boolean(true),
+            "note.char_limit" | "note.time_limit" | "write.font_size" | "write.volume" | "note.cols" | "note.rows" | "note.wrap" => {
+                toml::Value::Integer(20)
+            }
             _ => toml::Value::String(String::new()),
         };
         for k in WRITE_KEYS.into_iter().chain(NOTE_KEYS) {
@@ -704,5 +769,18 @@ mod tests {
         }
         assert!(text.contains(r#"paper = "graph""#) && text.contains("char_limit = 400"), "{text}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sound_picked_is_heard_once() {
+        let mut c = Config::default();
+        // No key sound: the volume is heard on the bell, while it is on.
+        assert_eq!(hear("write.volume", &c), Some(Cue::Bell));
+        assert_eq!(hear("write.sound", &c), Some(Cue::Letter));
+        c.bell = false;
+        assert_eq!((hear("write.volume", &c), hear("write.bell", &c)), (None, None));
+        c.sound = Tick::Pencil;
+        assert_eq!(hear("write.volume", &c), Some(Cue::Letter));
+        assert_eq!(hear("write.dir", &c), None);
     }
 }

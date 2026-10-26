@@ -23,6 +23,7 @@ mod pace;
 mod prefs;
 mod settings;
 mod shelf;
+mod sound;
 mod stats;
 mod vertical;
 mod write;
@@ -36,10 +37,11 @@ use ito_common::window::{Saved, Tracker};
 use ito_keyscript::{Do, Runner, Step};
 use ito_notices::Kind;
 
-use crate::band::{Band, Hit};
+use crate::band::{Band, Edit, Hit};
 use crate::config::{Dir, Paper, TimeStart};
 use crate::keymap::{Act, Keymap};
 use crate::prefs::Prefs;
+use crate::sound::{Cue, Sound};
 
 /// The window's icon, in pixels square.
 const ICON_PX: u32 = 128;
@@ -150,6 +152,8 @@ pub struct App {
     shelf: shelf::Shelf,
     /// The topic shown over the band, of the piece on it.
     topic: Option<String>,
+    /// The keys' sounds and the bell; none for a script, which is quiet.
+    sound: Option<Sound>,
 }
 
 /// What the palette can do.
@@ -216,6 +220,7 @@ impl App {
             worker: None,
             shelf: shelf::Shelf::default(),
             topic: None,
+            sound: None,
         };
         for w in errors.iter().chain(&warnings) {
             app.say(Kind::Warn, w);
@@ -716,18 +721,32 @@ impl App {
         }
     }
 
+    /// `cue` sounds, a letter's and a paragraph's as the settings say.
+    pub fn sound(&mut self, cue: Cue, now: Instant) {
+        let c = &self.prefs.config;
+        if let Some(s) = &mut self.sound {
+            s.play(cue, c.sound, c.volume, now);
+        }
+    }
+
     /// The band: what is typed, committed and pasted goes onto it when
-    /// `typing`, and it is drawn.
+    /// `typing`, and it is drawn. Each frame of typing makes one sound, and
+    /// a limit reached rings the bell.
     fn write_screen(&mut self, ui: &mut egui::Ui, typing: bool) {
         let ctx = ui.ctx().clone();
         let rect = ui.max_rect();
         let now = Instant::now();
         let time = ctx.input(|i| i.time);
         let config = self.prefs.config;
+        let hits = self.band.hit().len();
+        let mut cue = None;
         if typing {
             let f = self.ime().frame(ui, write::caret_at(rect, &config), self.band.cursor() as u64);
             let preedit = if f.composing { f.preedit } else { String::new() };
             let mut typed = preedit != self.preedit;
+            if typed {
+                cue = Some(Cue::Letter);
+            }
             if !preedit.is_empty() && !self.band.started() && config.time_start == TimeStart::First {
                 self.band.start(now);
             }
@@ -737,7 +756,16 @@ impl App {
             let events = ctx.input(|i| i.events.clone());
             let mut edited = false;
             for e in events.iter().filter_map(|e| write::edit_of(e, config.dir)) {
-                edited |= self.band.edit(e, now, config.no_erase);
+                // Moving along the band is quiet.
+                let sounds = match e {
+                    Edit::Paragraph => Some(Cue::Paragraph),
+                    Edit::Text(_) | Edit::Backspace | Edit::Delete => Some(Cue::Letter),
+                    _ => None,
+                };
+                if self.band.edit(e, now, config.no_erase) {
+                    edited = true;
+                    cue = cue.max(sounds);
+                }
             }
             if edited {
                 self.draft_due = Some(time + DRAFT_AFTER);
@@ -753,6 +781,12 @@ impl App {
         }
         if self.band.running() {
             self.band.tick(now);
+        }
+        if let Some(cue) = cue {
+            self.sound(cue, now);
+        }
+        if config.bell && self.band.hit().len() > hits {
+            self.sound(Cue::Bell, now);
         }
         let settings_key = self.keymap.hint(Act::Settings).unwrap_or_else(|| "—".to_owned());
         let view = write::View {
@@ -825,6 +859,9 @@ impl eframe::App for App {
             }
         });
         self.keep_draft(&ctx, time);
+        if let Some(due) = self.sound.as_mut().and_then(|s| s.rest(Instant::now())) {
+            ctx.request_repaint_after(due);
+        }
         self.notice_list(&ctx);
         self.command_palette(&ctx);
         if self.quit {
@@ -973,6 +1010,7 @@ fn main() -> eframe::Result {
             let ctx = cc.egui_ctx.clone();
             app.start_notes(kept, move || ctx.request_repaint());
             app.draft = draft;
+            app.sound = script.is_none().then(Sound::default);
             app.script = script.map(|steps| {
                 let mut r = Runner::new(steps, done);
                 r.watch(cc.egui_ctx.clone());

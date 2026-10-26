@@ -28,6 +28,8 @@
 - [x] 0.4.0 清書: `layout/`（原稿用紙・罫線・方眼・無地、縦の字形）と `draw.rs`、Esc で清書・Enter で続き、マスのクリックで直す、ルビと傍点。
 - [x] 0.5.0 ノート: 綴じる、本棚と篇の一覧、清書で ←→ でめくる、ノートごとの設定、昔の篇を開いて直す。
 - [x] 0.6.0 書くのを助けるもの: 設定の画面を全部、お題、記録（1 日の字数・続けた日数・1 分の字数）、速さの線。
+- [x] 0.7.0 打つ音: タイプライター・鉛筆の音、上限の知らせの音、音の大きさ。
+- [ ] 0.8.0 書き出し: PNG・PDF・印刷（1 篇・1 冊）をノートの `export\` に。
 - [ ] 仕上げ: ヘルプの中身、パレットのコマンド、TESTING.md の行、README、アイコン。
 
 ## ito に頼んだもの（来るまで fude に代わりを書かない）
@@ -38,8 +40,8 @@
 - [x] [uchmk/ito#39](https://github.com/uchmk/ito/issues/39) `ito_common::documents_dir()` → 0.5.0 ノートの置き場の既定 `ドキュメント\fude`。
 - [x] [uchmk/ito#40](https://github.com/uchmk/ito/issues/40) `ito-ime` と keyscript の `<Preedit>` `<Commit>` → 0.3.0 書く帯で日本語を打つ。
   縦の帯の候補窓の位置は実機の IME で確かめる。
-- [x] [uchmk/ito#41](https://github.com/uchmk/ito/issues/41) 短い音 → 0.6.0 `sound.rs`（打つ音）と設定の行。
-- [x] [uchmk/ito#42](https://github.com/uchmk/ito/issues/42) `ito-export` → 0.6.0 / 仕上げ `svg.rs`・`export.rs`（PNG・PDF・印刷、1 篇・1 冊）。
+- [x] [uchmk/ito#41](https://github.com/uchmk/ito/issues/41) 短い音 → 0.7.0 `sound.rs`（打つ音）と設定の行。
+- [x] [uchmk/ito#42](https://github.com/uchmk/ito/issues/42) `ito-export` → 0.8.0 `svg.rs`・`export.rs`（PNG・PDF・印刷、1 篇・1 冊）。
 
 ## ito に頼んでいるもの（0.4.0 から。来るまで ito-prefs の今あるもので代える）
 

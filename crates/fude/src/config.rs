@@ -1,5 +1,5 @@
 //! fude's own settings, config.toml in fude's folder (`app_dir`): `[write]`
-//! is how the band looks and counts, `[note]` the paper, the limits, the
+//! is how the band looks, counts and sounds, `[note]` the paper, the limits, the
 //! no-erase mode and the topics (the defaults of a notebook's own
 //! fude.toml; the list of topics is only a notebook's). A value that is not
 //! understood is said and left as it was.
@@ -84,6 +84,12 @@ words! {
 }
 
 words! {
+    /// The sound of each letter written: none, a typewriter's key or a
+    /// pencil's stroke.
+    Tick { Off = "none", Typewriter = "typewriter", Pencil = "pencil" }
+}
+
+words! {
     /// The topic shown over a new piece: the notebook's list in its order
     /// (the one after the last piece's), drawn by lot, or none.
     Topic { Order = "order", Random = "random", Off = "none" }
@@ -124,6 +130,11 @@ pub struct Config {
     pub face: Face,
     /// The clean copy shows how fast each line was written.
     pub pace: bool,
+    pub sound: Tick,
+    /// A bell when a limit is reached.
+    pub bell: bool,
+    /// Of the sounds, 0–100.
+    pub volume: u32,
     /// Letters; 0 is none.
     pub char_limit: u32,
     /// Minutes; 0 is none.
@@ -158,6 +169,9 @@ impl Default for Config {
             on_continue: OnContinue::default(),
             face: Face::default(),
             pace: true,
+            sound: Tick::default(),
+            bell: true,
+            volume: 50,
             char_limit: 0,
             time_limit: 0,
             no_erase: false,
@@ -181,6 +195,7 @@ pub const TIME_LIMIT: (u32, u32) = (0, 600);
 pub const COLS: (u32, u32) = (5, 40);
 pub const ROWS: (u32, u32) = (2, 40);
 pub const WRAP: (u32, u32) = (0, 80);
+pub const VOLUME: (u32, u32) = (0, 100);
 
 /// config.toml in `base`'s fude folder.
 pub fn path(base: &Path) -> PathBuf {
@@ -252,6 +267,9 @@ impl Config {
             ("write", "on_continue") => word(value, OnContinue::parse, OnContinue::ALL, &mut self.on_continue),
             ("write", "face") => word(value, Face::parse, Face::ALL, &mut self.face),
             ("write", "pace") => switch(value, &mut self.pace),
+            ("write", "sound") => word(value, Tick::parse, Tick::ALL, &mut self.sound),
+            ("write", "bell") => switch(value, &mut self.bell),
+            ("write", "volume") => number(value, VOLUME, &mut self.volume),
             ("note", "char_limit") => number(value, CHAR_LIMIT, &mut self.char_limit),
             ("note", "time_limit") => number(value, TIME_LIMIT, &mut self.time_limit),
             ("note", "no_erase") => switch(value, &mut self.no_erase),
@@ -340,6 +358,7 @@ mod tests {
         let c = Config::default();
         assert_eq!((c.font_size, c.paper, c.paper_dir, c.cols, c.rows), (40, Paper::Auto, Dir::Vertical, 20, 20));
         assert!(c.indent && c.merge);
+        assert_eq!((c.sound, c.bell, c.volume), (Tick::Off, true, 50));
     }
 
     #[test]
@@ -354,6 +373,9 @@ time_start = "open"
 on_continue = "free"
 face = "gothic"
 pace = false
+sound = "pencil"
+bell = false
+volume = 140
 colour = "red"
 
 [note]
@@ -382,8 +404,9 @@ topics = ["朝"]
         assert_eq!((c.cols, c.rows, c.wrap), (5, 10, 30));
         assert_eq!((c.indent, c.hang, c.merge), (false, Hang::Out, true));
         assert_eq!((c.face, c.pace, c.topic), (Face::Gothic, false, Topic::Random));
+        assert_eq!((c.sound, c.bell, c.volume), (Tick::Pencil, false, 100));
         // The list of topics is a notebook's own.
-        assert_eq!(warn.len(), 6, "{warn:?}");
+        assert_eq!(warn.len(), 7, "{warn:?}");
         let said = |a: &str, b: &str| warn.iter().any(|w| w.contains(a) && w.contains(b));
         assert!(said("font_size", "120 is used") && said("point", "\"start\"") && said("colour", "not a setting"), "{warn:?}");
         assert!(parse("[write").is_err());
