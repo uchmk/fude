@@ -41,6 +41,14 @@ copy = "Copy"
 new = "New piece"
 shelf = "Open the shelf"
 save = "Save the piece"
+export_pdf = "Export: PDF (this piece)"
+export_png = "Export: PNG (this piece)"
+export_note_pdf = "Export: PDF (the whole notebook)"
+export_note_png = "Export: PNG (the whole notebook)"
+print = "Print: this piece"
+print_note = "Print: the whole notebook"
+export_query = "Export"
+print_query = "Print"
 
 [write]
 hint_chars_of = "{0} / {1} letters"
@@ -236,6 +244,17 @@ saved = "Saved to {0}"
 save_empty = "Nothing is written yet"
 first = "This is the oldest piece"
 last = "This is the newest piece"
+export = "Export"
+
+[export]
+busy = "Exporting…"
+printing = "Sending to the printer…"
+pdf = "Exported to {0}"
+png = "Exported {0} PNG pages ({1} on)"
+printed = "Sent to the printer ({0})"
+empty = "Nothing is written yet"
+no_folder = "There is no notebook folder to export to"
+failed = "Could not export: {0}"
 
 [note]
 default = "Notebook"

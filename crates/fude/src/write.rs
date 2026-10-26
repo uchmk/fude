@@ -274,6 +274,16 @@ pub fn middle(painter: &Painter, font: &FontId) -> f32 {
     }
 }
 
+/// How far below the middle of an ideograph in `font` its baseline is: where
+/// a renderer that sets text on its baseline is to put it.
+pub fn sink(painter: &Painter, font: &FontId) -> f32 {
+    let g = painter.layout_no_wrap("国".into(), font.clone(), Color32::WHITE);
+    match g.rows[0].glyphs.first() {
+        Some(gl) if !gl.uv_rect.is_nothing() => -(gl.uv_rect.offset.y + gl.uv_rect.size.y / 2.0),
+        _ => font.size * 0.38,
+    }
+}
+
 /// The background laid over `r` thinning out along the line (`horizontal`
 /// or not), from opaque at its far end to clear by the input point:
 /// `far_first` when the far end is the left or the top.

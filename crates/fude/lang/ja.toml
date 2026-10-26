@@ -40,6 +40,14 @@ copy = "コピー"
 new = "新しい篇を書く"
 shelf = "本棚を開く"
 save = "この篇を保存"
+export_pdf = "書き出し: PDF（この篇）"
+export_png = "書き出し: PNG（この篇）"
+export_note_pdf = "書き出し: PDF（ノート 1 冊）"
+export_note_png = "書き出し: PNG（ノート 1 冊）"
+print = "印刷: この篇"
+print_note = "印刷: ノート 1 冊"
+export_query = "書き出し"
+print_query = "印刷"
 
 [write]
 hint_chars_of = "{0} / {1} 字"
@@ -206,6 +214,8 @@ shelf_close = "本棚を閉じる"
 "Show the key help" = "キー一覧を表示"
 "Quit" = "終了"
 "Open the shelf" = "本棚を開く"
+"Export the clean copy (PDF / PNG)" = "清書を書き出す（PDF・PNG）"
+"Print the clean copy" = "清書を印刷"
 
 [clean]
 so_far = "ここまでの清書"
@@ -241,6 +251,17 @@ saved = "{0} に綴じました"
 save_empty = "まだ何も書いていません"
 first = "一番古い篇です"
 last = "一番新しい篇です"
+export = "書き出し"
+
+[export]
+busy = "書き出しています…"
+printing = "印刷に回しています…"
+pdf = "{0} に書き出しました"
+png = "PNG {0} 枚を書き出しました（{1} から）"
+printed = "印刷に回しました（{0}）"
+empty = "まだ何も書いていません"
+no_folder = "ノートのフォルダーがないため、書き出せません"
+failed = "書き出せませんでした: {0}"
 
 [note]
 default = "ノート"

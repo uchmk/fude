@@ -87,7 +87,7 @@ fn aside(path: &Path, stamp: u64) -> PathBuf {
 
 /// Open a file or a folder with what the OS opens it with (the file
 /// manager's own command), not waiting for it.
-fn open_path(path: &Path) -> Result<(), String> {
+pub(crate) fn open_path(path: &Path) -> Result<(), String> {
     let template = ito_openin::default_command(ito_openin::Tool::Explorer);
     ito_openin::open(template, &ito_openin::Vars::path(path), None)
 }

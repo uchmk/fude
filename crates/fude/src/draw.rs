@@ -3,12 +3,17 @@
 //! over the letters, a dot by each emphasised one, and where a click puts
 //! the cursor; in the margin, how fast each line went and where the hand
 //! stopped. The mock's `renderGenko` and `renderWrap` and their CSS.
+//!
+//! It is drawn on a [`Surface`]: the window's, or a page of A4 to export
+//! ([`print`]), the same way on both.
 
+use std::cell::RefCell;
 use std::f32::consts::FRAC_PI_2;
 
 use egui::epaint::{Shadow, TextShape};
 use egui::{
-    pos2, vec2, Color32, CursorIcon, FontFamily, FontId, Painter, Pos2, Rect, ScrollArea, Sense, Shape, Stroke, StrokeKind, Ui, Vec2,
+    pos2, vec2, Color32, CursorIcon, FontFamily, FontId, LayerId, Painter, Pos2, Rect, ScrollArea, Sense, Shape, Stroke, StrokeKind, Ui,
+    Vec2,
 };
 
 use crate::config::{Config, Dir, Face, Hang, Paper, Rule};
@@ -27,6 +32,10 @@ const GAP: f32 = 28.0;
 const FONT: f32 = 20.0;
 const PITCH: f32 = 40.0;
 const MARGIN: Vec2 = vec2(44.0, 36.0);
+/// A page of A4 standing, at 96 to the inch.
+pub const A4: Vec2 = vec2(794.0, 1123.0);
+/// The least room round a page of manuscript paper on the A4.
+const BORDER: f32 = 24.0;
 
 /// The paper the clean copy is on, as the tools row sets it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,18 +74,185 @@ pub struct Drawn {
     pub paras: usize,
 }
 
+/// What the clean copy is drawn on.
+pub trait Surface {
+    /// How wide `s` is set in `font`.
+    fn width(&self, s: &str, font: &FontId) -> f32;
+    /// `s` with its middle across at `at.x` and the middle of an ideograph
+    /// at `at.y`; `turned`, given a quarter turn clockwise about `at`.
+    fn text(&self, s: &str, at: Pos2, font: &FontId, color: Color32, turned: bool);
+    /// A thin rule across (`along_x`) or down.
+    fn rule(&self, along_x: bool, at: f32, range: (f32, f32), color: Color32);
+    /// A rectangle's outline, the line `width` wide on it.
+    fn frame(&self, r: Rect, width: f32, color: Color32);
+    fn dot(&self, c: Pos2, r: f32, color: Color32);
+    /// A convex shape filled.
+    fn fill(&self, points: Vec<Pos2>, color: Color32);
+    fn line(&self, a: Pos2, b: Pos2, width: f32, color: Color32);
+    /// A sheet of paper laid on the room.
+    fn sheet(&self, r: Rect, color: Color32);
+    /// Whether anything in `r` would be seen.
+    fn visible(&self, r: Rect) -> bool;
+}
+
+/// `f` of `family`, worked out the first time it is asked for.
+pub fn once(known: &RefCell<Vec<(FontFamily, f32)>>, family: &FontFamily, f: impl FnOnce() -> f32) -> f32 {
+    if let Some(&(_, v)) = known.borrow().iter().find(|k| &k.0 == family) {
+        return v;
+    }
+    let v = f();
+    known.borrow_mut().push((family.clone(), v));
+    v
+}
+
+/// The window.
+struct Screen<'a> {
+    painter: &'a Painter,
+    /// How far down a laid out letter the middle of an ideograph falls, as a
+    /// share of its size, for each family.
+    mids: RefCell<Vec<(FontFamily, f32)>>,
+}
+
+impl<'a> Screen<'a> {
+    fn new(painter: &'a Painter) -> Screen<'a> {
+        Screen { painter, mids: RefCell::default() }
+    }
+}
+
+impl Surface for Screen<'_> {
+    fn width(&self, s: &str, font: &FontId) -> f32 {
+        self.painter.layout_no_wrap(s.into(), font.clone(), Color32::WHITE).size().x
+    }
+
+    fn text(&self, s: &str, at: Pos2, font: &FontId, color: Color32, turned: bool) {
+        let mid = once(&self.mids, &font.family, || middle(self.painter, &FontId::new(40.0, font.family.clone())) / 40.0) * font.size;
+        let g = self.painter.layout_no_wrap(s.into(), font.clone(), color);
+        let w = g.size().x;
+        if turned {
+            // A quarter turn about its top left, which then sits at the right.
+            self.painter.add(TextShape::new(pos2(at.x + mid, at.y - w / 2.0), g, color).with_angle(FRAC_PI_2));
+        } else {
+            self.painter.galley(pos2(at.x - w / 2.0, at.y - mid), g, color);
+        }
+    }
+
+    /// Crisp on the pixels.
+    fn rule(&self, along_x: bool, at: f32, range: (f32, f32), color: Color32) {
+        let at = self.painter.round_to_pixel_center(at);
+        let stroke = Stroke::new(1.0, color);
+        if along_x {
+            self.painter.hline(range.0..=range.1, at, stroke);
+        } else {
+            self.painter.vline(at, range.0..=range.1, stroke);
+        }
+    }
+
+    fn frame(&self, r: Rect, width: f32, color: Color32) {
+        self.painter.rect_stroke(r, 0.0, Stroke::new(width, color), StrokeKind::Middle);
+    }
+
+    fn dot(&self, c: Pos2, r: f32, color: Color32) {
+        self.painter.circle_filled(c, r, color);
+    }
+
+    fn fill(&self, points: Vec<Pos2>, color: Color32) {
+        self.painter.add(Shape::convex_polygon(points, color, Stroke::NONE));
+    }
+
+    fn line(&self, a: Pos2, b: Pos2, width: f32, color: Color32) {
+        self.painter.line_segment([a, b], Stroke::new(width, color));
+    }
+
+    /// With its shadow and its corners rounded.
+    fn sheet(&self, r: Rect, color: Color32) {
+        let light = ito_theme::colors().light;
+        let shadow = Shadow { offset: [0, 4], blur: 16, spread: 0, color: Color32::from_black_alpha(if light { 40 } else { 110 }) };
+        self.painter.add(shadow.as_shape(r, 3.0));
+        self.painter.rect_filled(r, 3.0, color);
+    }
+
+    fn visible(&self, r: Rect) -> bool {
+        self.painter.clip_rect().intersects(r)
+    }
+}
+
 /// The clean copy of `text` on `sheet`, filling what is left of `ui`;
 /// `empty` is said on a sheet with nothing on it. `fresh` scrolls to where
 /// the text begins: the top, and the right of a vertical one. With a
 /// `pace`, the margin shows how fast each line went.
 pub fn draw(ui: &mut Ui, sheet: &Sheet, config: &Config, text: &str, empty: &str, fresh: bool, pace: Option<&Pace>) -> Drawn {
     let doc = Doc::parse(text);
-    let end = text.chars().count();
+    let matter = Matter::new(&doc, config, text, pace);
     if sheet.paper == Paper::Genko {
-        grid(ui, sheet, config, &doc, end, fresh, pace)
+        grid(ui, sheet, config, &matter, fresh)
     } else {
-        lined(ui, sheet, config, &doc, end, empty, fresh, pace)
+        lined(ui, sheet, config, &matter, empty, fresh)
     }
+}
+
+/// The clean copy of `text` on `sheet` as pages of A4 to print, light and
+/// without the pace: manuscript paper a page of the grid to each, turned
+/// when the grid is wider than tall; a sheet standing, as many lines to a
+/// page as it holds. `page(size, k)` gives the surface for each page,
+/// `size` big and drawn `k` times as big. Nothing when the text is empty.
+pub fn print<S: Surface>(ctx: &egui::Context, sheet: &Sheet, config: &Config, text: &str, mut page: impl FnMut(Vec2, f32) -> S) -> Vec<S> {
+    if text.trim().is_empty() {
+        return Vec::new();
+    }
+    let doc = Doc::parse(text);
+    let matter = Matter::new(&doc, config, text, None);
+    let vertical = sheet.dir == Dir::Vertical;
+    let ink = Ink::printed(config.rule);
+    let family = family(ctx, config);
+    let measure = Painter::new(ctx.clone(), LayerId::background(), Rect::EVERYTHING);
+    if sheet.paper == Paper::Genko {
+        let lines = grid_lines(sheet, config, &doc);
+        let unit = Grid::new(sheet, 1.0).page;
+        let paper = if unit.x > unit.y { vec2(A4.y, A4.x) } else { A4 };
+        let s = ((paper.x - 2.0 * BORDER) / unit.x).min((paper.y - 2.0 * BORDER) / unit.y);
+        let grid = Grid::new(sheet, s);
+        let pages = lines.len().div_ceil(grid.rows).max(1);
+        let at = ((paper - grid.page) / 2.0).to_pos2();
+        let probe = FontId::new(s, family.clone());
+        let has = |ch: char| ctx.fonts_mut(|f| f.has_glyph(&probe, ch));
+        return (0..pages)
+            .map(|p| {
+                let surface = page(paper, 1.0);
+                let pen = Pen { surface: &surface, family: family.clone(), color: ink.ink, has: &has, vertical };
+                grid_page(&pen, &ink, &matter, &grid, &lines, p, pages, at);
+                surface
+            })
+            .collect();
+    }
+    let font = FontId::new(FONT, family.clone());
+    let adv = |s: &str| measure.layout_no_wrap(s.into(), font.clone(), Color32::WHITE).size().x / FONT;
+    let room = if sheet.wrap > 0 {
+        sheet.wrap as f32
+    } else if vertical {
+        ((A4.y - 2.0 * MARGIN.y) / FONT).floor()
+    } else {
+        ((A4.x - 2.0 * MARGIN.x) / FONT).floor()
+    };
+    let paras = wrap::layout(&doc, &wrap::Opt { vertical, graph: sheet.paper == Paper::Graph, indent: config.indent }, room, &adv);
+    let rows: Vec<&wrap::Row> = paras.iter().flatten().collect();
+    // A longer line than the page holds draws the page smaller.
+    let k = if vertical { A4.y / (room * FONT + 2.0 * MARGIN.y) } else { A4.x / (room * FONT + 2.0 * MARGIN.x) }.min(1.0);
+    let sheet_r = Rect::from_min_size(Pos2::ZERO, A4 / k);
+    let per = ((if vertical { sheet_r.width() - 2.0 * MARGIN.x } else { sheet_r.height() - 2.0 * MARGIN.y }) / PITCH).floor().max(1.0);
+    let text_r =
+        Rect::from_center_size(sheet_r.center(), if vertical { vec2(per * PITCH, room * FONT) } else { vec2(room * FONT, per * PITCH) });
+    let has = |ch: char| ctx.fonts_mut(|f| f.has_glyph(&font, ch));
+    rows.chunks(per as usize)
+        .map(|chunk| {
+            let surface = page(A4, k);
+            let pen = Pen { surface: &surface, family: family.clone(), color: ink.ink, has: &has, vertical };
+            sheet_lines(&surface, &ink, sheet.paper, vertical, sheet_r, text_r);
+            for (i, row) in chunk.iter().enumerate() {
+                row_of(&pen, &ink, &matter, row, band(vertical, sheet_r, text_r, i), text_r);
+            }
+            surface
+        })
+        .collect()
 }
 
 /// The family the clean copy is set in.
@@ -84,6 +260,25 @@ fn family(ctx: &egui::Context, config: &Config) -> FontFamily {
     match config.face {
         Face::Mincho => fonts::mincho(ctx),
         Face::Gothic => FontFamily::Proportional,
+    }
+}
+
+/// What is set: the text, where each ruby's letters begin, and what the
+/// settings and the record say about it.
+struct Matter<'a> {
+    doc: &'a Doc,
+    starts: Vec<usize>,
+    /// The text's length: a click past everything puts the cursor there.
+    end: usize,
+    /// A stop that would open a line shares the last square of the one
+    /// before it.
+    tuck: bool,
+    pace: Option<&'a Pace>,
+}
+
+impl<'a> Matter<'a> {
+    fn new(doc: &'a Doc, config: &Config, text: &str, pace: Option<&'a Pace>) -> Matter<'a> {
+        Matter { doc, starts: ruby_starts(doc), end: text.chars().count(), tuck: config.hang == Hang::In, pace }
     }
 }
 
@@ -98,54 +293,48 @@ struct Ink {
 }
 
 impl Ink {
-    fn of(rule: Rule) -> Ink {
-        let c = ito_theme::colors();
-        let rgb = |light: [u8; 3], dark: [u8; 3]| {
-            let [r, g, b] = if c.light { light } else { dark };
+    /// The rules' colour, in the light or in the dark.
+    fn rule(rule: Rule, light: bool) -> Color32 {
+        let rgb = |l: [u8; 3], d: [u8; 3]| {
+            let [r, g, b] = if light { l } else { d };
             Color32::from_rgb(r, g, b)
         };
-        let rule = match rule {
+        match rule {
             Rule::Shu => rgb([0xd0, 0x50, 0x3f], [0xb8, 0x65, 0x5a]),
             Rule::Midori => rgb([0x3c, 0x8a, 0x56], [0x5f, 0x9c, 0x74]),
             Rule::Ao => rgb([0x6f, 0x9f, 0xd0], [0x5a, 0x7f, 0xa6]),
             Rule::Sumi => rgb([0x8a, 0x90, 0x9b], [0x5b, 0x62, 0x72]),
-        };
-        Ink {
-            paper: rgb([0xff, 0xfd, 0xf8], [0x1d, 0x20, 0x27]),
-            ink: rgb([0x1d, 0x21, 0x29], [0xdf, 0xe3, 0xea]),
-            rule,
-            dim: c.dim,
-            stop: c.wait,
         }
     }
 
-    /// A sheet of paper laid on the room.
-    fn paper(&self, painter: &Painter, r: Rect) {
-        let light = ito_theme::colors().light;
-        let shadow = Shadow { offset: [0, 4], blur: 16, spread: 0, color: Color32::from_black_alpha(if light { 40 } else { 110 }) };
-        painter.add(shadow.as_shape(r, 3.0));
-        painter.rect_filled(r, 3.0, self.paper);
+    /// In the window's theme.
+    fn of(rule: Rule) -> Ink {
+        let c = ito_theme::colors();
+        let (paper, ink) = if c.light {
+            (Color32::from_rgb(0xff, 0xfd, 0xf8), Color32::from_rgb(0x1d, 0x21, 0x29))
+        } else {
+            (Color32::from_rgb(0x1d, 0x20, 0x27), Color32::from_rgb(0xdf, 0xe3, 0xea))
+        };
+        Ink { paper, ink, rule: Ink::rule(rule, c.light), dim: c.dim, stop: c.wait }
+    }
+
+    /// On white paper.
+    fn printed(rule: Rule) -> Ink {
+        let grey = Color32::from_rgb(0x8a, 0x90, 0x9b);
+        Ink { paper: Color32::WHITE, ink: Color32::from_rgb(0x1d, 0x21, 0x29), rule: Ink::rule(rule, true), dim: grey, stop: grey }
     }
 }
 
 /// How letters are set.
 struct Pen<'a> {
-    painter: &'a Painter,
+    surface: &'a dyn Surface,
     family: FontFamily,
     color: Color32,
-    /// How far down a laid out letter the middle of an ideograph falls, as a
-    /// share of its size.
-    mid: f32,
     has: &'a dyn Fn(char) -> bool,
     vertical: bool,
 }
 
-impl<'a> Pen<'a> {
-    fn new(painter: &'a Painter, family: FontFamily, color: Color32, has: &'a dyn Fn(char) -> bool, vertical: bool) -> Pen<'a> {
-        let mid = middle(painter, &FontId::new(40.0, family.clone())) / 40.0;
-        Pen { painter, family, color, mid, has, vertical }
-    }
-
+impl Pen<'_> {
     fn font(&self, size: f32) -> FontId {
         FontId::new(size, self.family.clone())
     }
@@ -153,27 +342,19 @@ impl<'a> Pen<'a> {
     /// `s` across the page, its middle at `at`, made smaller if wider than
     /// `fit`.
     fn across(&self, s: &str, at: Pos2, size: f32, fit: f32) {
-        let mut size = size;
-        let mut g = self.painter.layout_no_wrap(s.into(), self.font(size), self.color);
-        if g.size().x > fit {
-            size *= fit / g.size().x;
-            g = self.painter.layout_no_wrap(s.into(), self.font(size), self.color);
-        }
-        self.painter.galley(pos2(at.x - g.size().x / 2.0, at.y - self.mid * size), g, self.color);
+        let w = self.surface.width(s, &self.font(size));
+        let size = if w > fit { size * fit / w } else { size };
+        self.surface.text(s, at, &self.font(size), self.color, false);
     }
 
     /// A letter standing in its square, moved by these shares of its size.
     fn upright(&self, ch: char, at: Pos2, size: f32, dx: f32, dy: f32) {
-        let g = self.painter.layout_no_wrap(ch.to_string(), self.font(size), self.color);
-        self.painter.galley(pos2(at.x - g.size().x / 2.0 + dx * size, at.y - self.mid * size + dy * size), g, self.color);
+        self.surface.text(&ch.to_string(), at + vec2(dx, dy) * size, &self.font(size), self.color, false);
     }
 
-    /// `s` on its side down the page, its middle at `at`: a quarter turn
-    /// clockwise about its top left, which then sits at the right.
+    /// `s` on its side down the page, its middle at `at`.
     fn side(&self, s: &str, at: Pos2, size: f32) {
-        let g = self.painter.layout_no_wrap(s.into(), self.font(size), self.color);
-        let top = at.y - g.size().x / 2.0;
-        self.painter.add(TextShape::new(pos2(at.x + self.mid * size, top), g, self.color).with_angle(FRAC_PI_2));
+        self.surface.text(s, at, &self.font(size), self.color, true);
     }
 
     /// A letter as it stands in a line, the middle of its square at `at`.
@@ -244,7 +425,7 @@ fn ruby_starts(doc: &Doc) -> Vec<usize> {
 
 /// The ruby and the dots of one line, set at `side` across it: the x of a
 /// vertical line, the y of a horizontal one.
-fn marks(pen: &Pen, doc: &Doc, starts: &[usize], placed: &[Placed], side: f32, ruby: f32, dot: f32) {
+fn marks(pen: &Pen, matter: &Matter, placed: &[Placed], side: f32, ruby: f32, dot: f32) {
     let at = |p: &Placed, share: f32| {
         if pen.vertical {
             pos2(side, p.r.top() + p.r.height() * share)
@@ -255,7 +436,7 @@ fn marks(pen: &Pen, doc: &Doc, starts: &[usize], placed: &[Placed], side: f32, r
     for p in placed.iter().filter(|p| p.t.dot) {
         let n = p.t.s.chars().count();
         for k in 0..n {
-            pen.painter.circle_filled(at(p, (k as f32 + 0.5) / n as f32), dot, pen.color);
+            pen.surface.dot(at(p, (k as f32 + 0.5) / n as f32), dot, pen.color);
         }
     }
     let mut i = 0;
@@ -266,7 +447,7 @@ fn marks(pen: &Pen, doc: &Doc, starts: &[usize], placed: &[Placed], side: f32, r
         };
         let n = placed[i..].iter().take_while(|p| p.t.ruby == Some(r)).count();
         let (first, last) = (&placed[i], &placed[i + n - 1]);
-        let text = layout::ruby_part(&doc.rubies[r], first.t.at - starts[r], last.t.end - first.t.at);
+        let text = layout::ruby_part(&matter.doc.rubies[r], first.t.at - matter.starts[r], last.t.end - first.t.at);
         pen.ruby(&text, at(first, 0.0), at(last, 1.0), ruby);
         i += n;
     }
@@ -309,51 +490,77 @@ fn scrolled(
     .inner
 }
 
-/// A thin rule across (`along_x`) or down, crisp on the pixels.
-fn rule(painter: &Painter, along_x: bool, at: f32, range: (f32, f32), color: Color32) {
-    let at = painter.round_to_pixel_center(at);
-    let stroke = Stroke::new(1.0, color);
-    if along_x {
-        painter.hline(range.0..=range.1, at, stroke);
-    } else {
-        painter.vline(at, range.0..=range.1, stroke);
+/// The lines of manuscript paper `text` fills.
+fn grid_lines(sheet: &Sheet, config: &Config, doc: &Doc) -> Vec<genko::Line> {
+    let opt = genko::Opt {
+        cols: sheet.cols.max(1) as usize,
+        indent: config.indent,
+        hang: config.hang,
+        merge: config.merge,
+        vertical: sheet.dir == Dir::Vertical,
+    };
+    genko::lines(doc, &opt)
+}
+
+/// The measures of a page of manuscript paper with squares `s` big:
+/// `rows` lines of `cols` squares.
+struct Grid {
+    vertical: bool,
+    cols: usize,
+    rows: usize,
+    /// A pillar down the middle of a vertical page, with the page's number.
+    pillar: bool,
+    s: f32,
+    /// Between the lines.
+    g: f32,
+    /// The squares, and the page round them.
+    grid: Vec2,
+    page: Vec2,
+}
+
+impl Grid {
+    fn new(sheet: &Sheet, s: f32) -> Grid {
+        let vertical = sheet.dir == Dir::Vertical;
+        let (cols, rows) = (sheet.cols.max(1) as usize, sheet.rows.max(1) as usize);
+        let pillar = vertical && rows % 2 == 0 && rows >= 12;
+        let g = s * 0.3;
+        let (cf, rf) = (cols as f32, rows as f32);
+        let grid = if vertical {
+            vec2(rf * s + (rf - 1.0) * g + if pillar { 1.1 * s + g } else { 0.0 }, cf * s)
+        } else {
+            vec2(cf * s, rf * s + (rf - 1.0) * g)
+        };
+        let page = grid + if vertical { vec2(1.8 * s, 2.35 * s) } else { vec2(2.3 * s, 2.5 * s) };
+        Grid { vertical, cols, rows, pillar, s, g, grid, page }
     }
 }
 
-/// Manuscript paper: `rows` lines of `cols` squares to a page, the pages
-/// side by side as many as fit, then on down.
-fn grid(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, fresh: bool, pace: Option<&Pace>) -> Drawn {
+/// Manuscript paper: pages side by side as many as fit, then on down.
+fn grid(ui: &mut Ui, sheet: &Sheet, config: &Config, matter: &Matter, fresh: bool) -> Drawn {
     let vertical = sheet.dir == Dir::Vertical;
-    let (cols, rows) = (sheet.cols.max(1) as usize, sheet.rows.max(1) as usize);
-    let lines = genko::lines(doc, &genko::Opt { cols, indent: config.indent, hang: config.hang, merge: config.merge, vertical });
-    let pages = lines.len().div_ceil(rows).max(1);
-    // A pillar down the middle of a vertical page, with the page's number.
-    let pillar = vertical && rows % 2 == 0 && rows >= 12;
+    let lines = grid_lines(sheet, config, matter.doc);
+    let (cols, rows) = (sheet.cols.max(1) as f32, sheet.rows.max(1) as f32);
     let avail = ui.available_size();
     let (h, w) = (avail.y - 2.0 * PAD, avail.x - 2.0 * PAD);
-    let (cf, rf) = (cols as f32, rows as f32);
-    let fit =
-        if vertical { ((h - 8.0) / (cf + 2.6)).min(w / (rf * 1.3 + 3.4)) } else { ((h - 8.0) / (rf * 1.3 + 2.8)).min(w / (cf + 2.6)) };
-    let s = fit.floor().clamp(14.0, 30.0);
-    let g = s * 0.3;
-    let grid = if vertical {
-        vec2(rf * s + (rf - 1.0) * g + if pillar { 1.1 * s + g } else { 0.0 }, cf * s)
+    let fit = if vertical {
+        ((h - 8.0) / (cols + 2.6)).min(w / (rows * 1.3 + 3.4))
     } else {
-        vec2(cf * s, rf * s + (rf - 1.0) * g)
+        ((h - 8.0) / (rows * 1.3 + 2.8)).min(w / (cols + 2.6))
     };
-    let page = grid + if vertical { vec2(1.8 * s, 2.35 * s) } else { vec2(2.3 * s, 2.5 * s) };
+    let grid = Grid::new(sheet, fit.floor().clamp(14.0, 30.0));
+    let page = grid.page;
+    let pages = lines.len().div_ceil(grid.rows).max(1);
     let per_row = (((w + GAP) / (page.x + GAP)).floor().max(1.0) as usize).min(pages);
     let page_rows = pages.div_ceil(per_row);
     let size = vec2(per_row as f32 * (page.x + GAP) - GAP, page_rows as f32 * (page.y + GAP) - GAP) + Vec2::splat(2.0 * PAD);
     let ink = Ink::of(config.rule);
     let ctx = ui.ctx().clone();
     let family = family(&ctx, config);
-    let probe = FontId::new(s, family.clone());
+    let probe = FontId::new(grid.s, family.clone());
     let has = |ch: char| ctx.fonts_mut(|f| f.has_glyph(&probe, ch));
-    let starts = ruby_starts(doc);
-    let tuck = config.hang == Hang::In;
     let paint = |painter: &Painter, origin: Pos2| {
-        let pen = Pen::new(painter, family.clone(), ink.ink, &has, vertical);
+        let screen = Screen::new(painter);
+        let pen = Pen { surface: &screen, family: family.clone(), color: ink.ink, has: &has, vertical };
         let mut spots = Vec::new();
         for p in 0..pages {
             let (row, k) = (p / per_row, p % per_row);
@@ -363,65 +570,69 @@ fn grid(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, fres
             // Vertical pages are read from the right.
             let idx = if vertical { in_row - 1 - k } else { k };
             let at = pos2(left + idx as f32 * (page.x + GAP), origin.y + PAD + row as f32 * (page.y + GAP));
-            let page_r = Rect::from_min_size(at, page);
-            if !painter.clip_rect().intersects(page_r) {
-                continue;
-            }
-            ink.paper(painter, page_r);
-            let grid_r = Rect::from_min_size(at + vec2(0.9 * s, 0.9 * s), grid);
-            painter.rect_stroke(grid_r.expand(0.14 * s + 0.75), 0.0, Stroke::new(1.5, ink.rule), StrokeKind::Middle);
-            for r in 0..rows {
-                let line_r = if vertical {
-                    let right = grid_r.right() - r as f32 * (s + g) - if pillar && r >= rows / 2 { 1.1 * s + g } else { 0.0 };
-                    Rect::from_min_max(pos2(right - s, grid_r.top()), pos2(right, grid_r.bottom()))
-                } else {
-                    let top = grid_r.top() + r as f32 * (s + g);
-                    Rect::from_min_max(pos2(grid_r.left(), top), pos2(grid_r.right(), top + s))
-                };
-                if pillar && r == rows / 2 {
-                    let right = grid_r.right() - r as f32 * (s + g);
-                    hashira(&pen, &ink, Rect::from_min_max(pos2(right - 1.1 * s, grid_r.top()), pos2(right, grid_r.bottom())), s, p + 1);
-                }
-                let ln = lines.get(p * rows + r);
-                spots.extend(line(&pen, &ink, doc, &starts, ln, line_r, s, cols, tuck, end, pace));
-            }
-            if !pillar {
-                let font = FontId::proportional(11.0);
-                let no = painter.layout_no_wrap(format!("{} / {pages}", p + 1), font, ink.dim);
-                painter.galley(pos2(page_r.center().x - no.size().x / 2.0, page_r.bottom() - 0.4 * s - no.size().y), no, ink.dim);
+            if screen.visible(Rect::from_min_size(at, page)) {
+                spots.extend(grid_page(&pen, &ink, matter, &grid, &lines, p, pages, at));
             }
         }
         spots
     };
-    let clicked = scrolled(ui, size, vertical, fresh, end, paint);
-    Drawn { clicked, pages, lines: lines.len(), paras: doc.paras.len() }
+    let clicked = scrolled(ui, size, vertical, fresh, matter.end, paint);
+    Drawn { clicked, pages, lines: lines.len(), paras: matter.doc.paras.len() }
+}
+
+/// Page `p` of `pages` of manuscript paper, its top left at `at`, and what
+/// of `lines` is on it; the spots a click puts the cursor by.
+#[allow(clippy::too_many_arguments)]
+fn grid_page(
+    pen: &Pen,
+    ink: &Ink,
+    matter: &Matter,
+    grid: &Grid,
+    lines: &[genko::Line],
+    p: usize,
+    pages: usize,
+    at: Pos2,
+) -> Vec<(Rect, usize)> {
+    let surface = pen.surface;
+    let Grid { s, g, rows, pillar, .. } = *grid;
+    let page_r = Rect::from_min_size(at, grid.page);
+    surface.sheet(page_r, ink.paper);
+    let grid_r = Rect::from_min_size(at + vec2(0.9 * s, 0.9 * s), grid.grid);
+    surface.frame(grid_r.expand(0.14 * s + 0.75), 1.5, ink.rule);
+    let mut spots = Vec::new();
+    for r in 0..rows {
+        let line_r = if grid.vertical {
+            let right = grid_r.right() - r as f32 * (s + g) - if pillar && r >= rows / 2 { 1.1 * s + g } else { 0.0 };
+            Rect::from_min_max(pos2(right - s, grid_r.top()), pos2(right, grid_r.bottom()))
+        } else {
+            let top = grid_r.top() + r as f32 * (s + g);
+            Rect::from_min_max(pos2(grid_r.left(), top), pos2(grid_r.right(), top + s))
+        };
+        if pillar && r == rows / 2 {
+            let right = grid_r.right() - r as f32 * (s + g);
+            hashira(pen, ink, Rect::from_min_max(pos2(right - 1.1 * s, grid_r.top()), pos2(right, grid_r.bottom())), s, p + 1);
+        }
+        spots.extend(line(pen, ink, matter, lines.get(p * rows + r), line_r, s, grid.cols));
+    }
+    if !pillar {
+        let number = Pen { color: ink.dim, family: FontFamily::Proportional, vertical: false, ..*pen };
+        number.across(&format!("{} / {pages}", p + 1), pos2(page_r.center().x, page_r.bottom() - 0.4 * s - 7.0), 11.0, f32::INFINITY);
+    }
+    spots
 }
 
 /// One line of the grid in `r`, its rules and what fills it; the spots a
 /// click puts the cursor by.
-#[allow(clippy::too_many_arguments)]
-fn line(
-    pen: &Pen,
-    ink: &Ink,
-    doc: &Doc,
-    starts: &[usize],
-    ln: Option<&genko::Line>,
-    r: Rect,
-    s: f32,
-    cols: usize,
-    tuck: bool,
-    end: usize,
-    pace: Option<&Pace>,
-) -> Vec<(Rect, usize)> {
+fn line(pen: &Pen, ink: &Ink, matter: &Matter, ln: Option<&genko::Line>, r: Rect, s: f32, cols: usize) -> Vec<(Rect, usize)> {
     let vertical = pen.vertical;
-    let painter = pen.painter;
+    let surface = pen.surface;
     let fs = s * 0.72;
     if vertical {
-        rule(painter, false, r.left(), (r.top(), r.bottom()), ink.rule);
-        rule(painter, false, r.right(), (r.top(), r.bottom()), ink.rule);
+        surface.rule(false, r.left(), (r.top(), r.bottom()), ink.rule);
+        surface.rule(false, r.right(), (r.top(), r.bottom()), ink.rule);
     } else {
-        rule(painter, true, r.top(), (r.left(), r.right()), ink.rule);
-        rule(painter, true, r.bottom(), (r.left(), r.right()), ink.rule);
+        surface.rule(true, r.top(), (r.left(), r.right()), ink.rule);
+        surface.rule(true, r.bottom(), (r.left(), r.right()), ink.rule);
     }
     let cell = |c: usize| {
         if vertical {
@@ -433,17 +644,17 @@ fn line(
     for c in 1..cols {
         let rc = cell(c);
         if vertical {
-            rule(painter, true, rc.top(), (r.left(), r.right()), ink.rule);
+            surface.rule(true, rc.top(), (r.left(), r.right()), ink.rule);
         } else {
-            rule(painter, false, rc.left(), (r.top(), r.bottom()), ink.rule);
+            surface.rule(false, rc.left(), (r.top(), r.bottom()), ink.rule);
         }
     }
     let Some(ln) = ln else {
-        return vec![(r, end)];
+        return vec![(r, matter.end)];
     };
     let mut spots = Vec::new();
     let mut placed = Vec::new();
-    let last_end = ln.cells.last().map_or(end, |t| t.end);
+    let last_end = ln.cells.last().map_or(matter.end, |t| t.end);
     for c in 0..cols {
         let rc = cell(c);
         let Some(t) = ln.cells.get(c) else {
@@ -454,7 +665,7 @@ fn line(
         match &ln.hang {
             // The stop that would open the next line shares the last square
             // with the letter before it.
-            Some(h) if tuck && c + 1 == cols => {
+            Some(h) if matter.tuck && c + 1 == cols => {
                 let shift = if vertical { vec2(0.0, -0.1 * s) } else { vec2(-0.1 * s, 0.0) };
                 pen.cell(&t.s, rc.center() + shift, fs * 0.92, s);
                 let small = fs * 0.6;
@@ -475,7 +686,7 @@ fn line(
             placed.push(Placed { t, r: rc });
         }
     }
-    if let (Some(h), false) = (&ln.hang, tuck) {
+    if let (Some(h), false) = (&ln.hang, matter.tuck) {
         // Past the end of the line, outside the grid.
         let rc = if vertical {
             Rect::from_min_size(pos2(r.left(), r.bottom() + 1.0), vec2(s, s))
@@ -488,8 +699,8 @@ fn line(
     }
     let g = s * 0.3;
     let side = if vertical { r.right() + g / 2.0 } else { r.top() - g / 2.0 };
-    marks(pen, doc, starts, &placed, side, s * 0.28, fs * 0.09);
-    if let Some(pace) = pace {
+    marks(pen, matter, &placed, side, s * 0.28, fs * 0.09);
+    if let Some(pace) = matter.pace {
         // Over the grid or before it; the stops on the rule after the line,
         // away from the ruby.
         let (from, most, side) = if vertical {
@@ -513,39 +724,69 @@ fn speed(pen: &Pen, ink: &Ink, pace: &Pace, placed: &[Placed], from: Pos2, most:
     if let Some(share) = pace.share(at, end) {
         // Even the slowest line shows a stub.
         let share = share.max(2.0 / most.length());
-        pen.painter.line_segment([from, from + most * share], Stroke::new(3.0, ink.dim.gamma_multiply(0.7)));
+        pen.surface.line(from, from + most * share, 3.0, ink.dim.gamma_multiply(0.7));
     }
     for &i in pace.stops().iter().filter(|&&i| at < i && i <= end) {
         if let Some(p) = placed.iter().rev().find(|p| p.t.at < i) {
             let c = if pen.vertical { pos2(side, p.r.bottom()) } else { pos2(p.r.right(), side) };
-            pen.painter.circle_filled(c, 2.2, ink.stop);
+            pen.surface.dot(c, 2.2, ink.stop);
         }
     }
 }
 
 /// The pillar of a vertical page: the fishtail and the page's number.
 fn hashira(pen: &Pen, ink: &Ink, r: Rect, s: f32, page: usize) {
-    let painter = pen.painter;
-    rule(painter, false, r.left(), (r.top(), r.bottom()), ink.rule);
-    rule(painter, false, r.right(), (r.top(), r.bottom()), ink.rule);
+    let surface = pen.surface;
+    surface.rule(false, r.left(), (r.top(), r.bottom()), ink.rule);
+    surface.rule(false, r.right(), (r.top(), r.bottom()), ink.rule);
     let (w, h) = (0.66 * s, 0.5 * s);
     let o = pos2(r.center().x - w / 2.0, r.top() + 2.2 * s);
     // The fishtail is not convex: its two halves are.
     for half in [[(0.0, 0.0), (0.5, 0.0), (0.5, 0.48), (0.0, 1.0)], [(0.5, 0.0), (1.0, 0.0), (1.0, 1.0), (0.5, 0.48)]] {
-        let points = half.iter().map(|&(x, y)| o + vec2(x * w, y * h)).collect();
-        painter.add(Shape::convex_polygon(points, ink.rule, Stroke::NONE));
+        surface.fill(half.iter().map(|&(x, y)| o + vec2(x * w, y * h)).collect(), ink.rule);
     }
     let size = 0.46 * s;
-    let number = Pen { painter, family: pen.family.clone(), color: ink.dim, mid: pen.mid, has: pen.has, vertical: false };
+    let number = Pen { color: ink.dim, family: pen.family.clone(), vertical: false, ..*pen };
     number.across(&page.to_string(), pos2(r.center().x, r.bottom() - 0.6 * s - size / 2.0), size, s);
+}
+
+/// What is printed on a ruled or graph sheet `sheet_r` whose lines are in
+/// `text_r`.
+fn sheet_lines(surface: &dyn Surface, ink: &Ink, paper: Paper, vertical: bool, sheet_r: Rect, text_r: Rect) {
+    let (xs, ys) = ((sheet_r.left(), sheet_r.right()), (sheet_r.top(), sheet_r.bottom()));
+    match (paper, vertical) {
+        (Paper::Ruled, false) => {
+            every(text_r.top() + PITCH - 1.0, PITCH, ys.0, ys.1).for_each(|y| surface.rule(true, y, xs, ink.rule.gamma_multiply(0.55)))
+        }
+        (Paper::Ruled, true) => {
+            every(text_r.right(), PITCH, xs.0, xs.1).for_each(|x| surface.rule(false, x, ys, ink.rule.gamma_multiply(0.55)))
+        }
+        (Paper::Graph, _) => {
+            let (from_x, from_y) = if vertical { (text_r.right() - 11.0, text_r.top()) } else { (text_r.left(), text_r.top() + 10.0) };
+            let col = ink.rule.gamma_multiply(0.32);
+            every(from_x, FONT, xs.0, xs.1).for_each(|x| surface.rule(false, x, ys, col));
+            every(from_y, FONT, ys.0, ys.1).for_each(|y| surface.rule(true, y, xs, col));
+        }
+        _ => {}
+    }
+}
+
+/// The `i`th line of a sheet: a band the sheet's height (down the page) or
+/// width (across it), from the start of `text_r`.
+fn band(vertical: bool, sheet_r: Rect, text_r: Rect, i: usize) -> Rect {
+    if vertical {
+        let right = text_r.right() - i as f32 * PITCH;
+        Rect::from_min_max(pos2(right - PITCH, sheet_r.top()), pos2(right, sheet_r.bottom()))
+    } else {
+        let top = text_r.top() + i as f32 * PITCH;
+        Rect::from_min_max(pos2(sheet_r.left(), top), pos2(sheet_r.right(), top + PITCH))
+    }
 }
 
 /// A ruled, graph or plain sheet: the lines broken where it runs out, one
 /// long sheet.
-#[allow(clippy::too_many_arguments)]
-fn lined(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, empty: &str, fresh: bool, pace: Option<&Pace>) -> Drawn {
+fn lined(ui: &mut Ui, sheet: &Sheet, config: &Config, matter: &Matter, empty: &str, fresh: bool) -> Drawn {
     let vertical = sheet.dir == Dir::Vertical;
-    let graph = sheet.paper == Paper::Graph;
     let avail = ui.available_size();
     let ctx = ui.ctx().clone();
     let family = family(&ctx, config);
@@ -560,7 +801,7 @@ fn lined(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, emp
         (avail.x - 2.0 * PAD - 2.0 * MARGIN.x).min(40.0 * FONT) / FONT
     }
     .max(1.0);
-    let paras = wrap::layout(doc, &wrap::Opt { vertical, graph, indent: config.indent }, room, &adv);
+    let paras = wrap::layout(matter.doc, &wrap::Opt { vertical, graph: sheet.paper == Paper::Graph, indent: config.indent }, room, &adv);
     let rows: Vec<&wrap::Row> = paras.iter().flatten().collect();
     let n = rows.len().max(1) as f32;
     let paper = if vertical {
@@ -571,74 +812,42 @@ fn lined(ui: &mut Ui, sheet: &Sheet, config: &Config, doc: &Doc, end: usize, emp
     let size = paper + Vec2::splat(2.0 * PAD);
     let ink = Ink::of(config.rule);
     let has = |ch: char| ctx.fonts_mut(|f| f.has_glyph(&font, ch));
-    let starts = ruby_starts(doc);
     let paint = |painter: &Painter, origin: Pos2| {
-        let pen = Pen::new(painter, family.clone(), ink.ink, &has, vertical);
+        let screen = Screen::new(painter);
+        let pen = Pen { surface: &screen, family: family.clone(), color: ink.ink, has: &has, vertical };
         let sheet_r = Rect::from_min_size(origin + Vec2::splat(PAD), paper);
-        ink.paper(painter, sheet_r);
+        screen.sheet(sheet_r, ink.paper);
         let text_r = sheet_r.shrink2(MARGIN);
-        let (xs, ys) = ((sheet_r.left(), sheet_r.right()), (sheet_r.top(), sheet_r.bottom()));
-        match (sheet.paper, vertical) {
-            (Paper::Ruled, false) => {
-                every(text_r.top() + PITCH - 1.0, PITCH, ys.0, ys.1).for_each(|y| rule(painter, true, y, xs, ink.rule.gamma_multiply(0.55)))
-            }
-            (Paper::Ruled, true) => {
-                every(text_r.right(), PITCH, xs.0, xs.1).for_each(|x| rule(painter, false, x, ys, ink.rule.gamma_multiply(0.55)))
-            }
-            (Paper::Graph, _) => {
-                let (from_x, from_y) = if vertical { (text_r.right() - 11.0, text_r.top()) } else { (text_r.left(), text_r.top() + 10.0) };
-                let col = ink.rule.gamma_multiply(0.32);
-                every(from_x, FONT, xs.0, xs.1).for_each(|x| rule(painter, false, x, ys, col));
-                every(from_y, FONT, ys.0, ys.1).for_each(|y| rule(painter, true, y, xs, col));
-            }
-            _ => {}
-        }
+        sheet_lines(&screen, &ink, sheet.paper, vertical, sheet_r, text_r);
         if rows.is_empty() {
-            let note = Pen::new(painter, FontFamily::Proportional, ink.dim, &has, vertical);
+            let note = Pen { family: FontFamily::Proportional, color: ink.dim, ..pen };
             if vertical {
                 let x = text_r.right() - PITCH / 2.0;
                 for (i, ch) in empty.chars().enumerate() {
                     note.letter(ch, pos2(x, text_r.top() + 13.0 * (i as f32 + 0.5)), 13.0);
                 }
             } else {
-                let g = painter.layout_no_wrap(empty.into(), FontId::proportional(13.0), ink.dim);
-                painter.galley(pos2(text_r.left(), text_r.top() + (PITCH - g.size().y) / 2.0), g, ink.dim);
+                let w = screen.width(empty, &FontId::proportional(13.0));
+                note.across(empty, pos2(text_r.left() + w / 2.0, text_r.top() + PITCH / 2.0), 13.0, f32::INFINITY);
             }
-            return vec![(sheet_r, end)];
+            return vec![(sheet_r, matter.end)];
         }
         let mut spots = Vec::new();
         for (i, row) in rows.iter().enumerate() {
-            let band = if vertical {
-                let right = text_r.right() - i as f32 * PITCH;
-                Rect::from_min_max(pos2(right - PITCH, sheet_r.top()), pos2(right, sheet_r.bottom()))
-            } else {
-                let top = text_r.top() + i as f32 * PITCH;
-                Rect::from_min_max(pos2(sheet_r.left(), top), pos2(sheet_r.right(), top + PITCH))
-            };
-            if !painter.clip_rect().intersects(band) {
-                continue;
+            let band = band(vertical, sheet_r, text_r, i);
+            if screen.visible(band) {
+                spots.extend(row_of(&pen, &ink, matter, row, band, text_r));
             }
-            spots.extend(row_of(&pen, &ink, doc, &starts, row, band, text_r, pace));
         }
         spots
     };
-    let clicked = scrolled(ui, size, vertical, fresh, end, paint);
-    Drawn { clicked, pages: 0, lines: rows.len(), paras: doc.paras.len() }
+    let clicked = scrolled(ui, size, vertical, fresh, matter.end, paint);
+    Drawn { clicked, pages: 0, lines: rows.len(), paras: matter.doc.paras.len() }
 }
 
 /// One line of a sheet in its `band` (the sheet's width or height), its
 /// letters from the start of `text_r`; the spots a click puts the cursor by.
-#[allow(clippy::too_many_arguments)]
-fn row_of(
-    pen: &Pen,
-    ink: &Ink,
-    doc: &Doc,
-    starts: &[usize],
-    row: &wrap::Row,
-    band: Rect,
-    text_r: Rect,
-    pace: Option<&Pace>,
-) -> Vec<(Rect, usize)> {
+fn row_of(pen: &Pen, ink: &Ink, matter: &Matter, row: &wrap::Row, band: Rect, text_r: Rect) -> Vec<(Rect, usize)> {
     let vertical = pen.vertical;
     let mut at = if vertical { text_r.top() } else { text_r.left() } + row.lead * FONT;
     let mut spots = Vec::new();
@@ -684,8 +893,8 @@ fn row_of(
     let last = row.pieces.last().map_or(first, |p| p.t.end);
     spots.push((run(at, f32::INFINITY), last));
     let side = if vertical { band.center().x + 15.0 } else { band.top() + 5.0 };
-    marks(pen, doc, starts, &placed, side, 10.0, FONT * 0.09);
-    if let Some(pace) = pace {
+    marks(pen, matter, &placed, side, 10.0, FONT * 0.09);
+    if let Some(pace) = matter.pace {
         let (from, most, side) = if vertical {
             (pos2(band.center().x, text_r.top() - 6.0), vec2(0.0, -26.0), band.center().x - 15.0)
         } else {
@@ -718,5 +927,17 @@ mod tests {
         assert_eq!(every(10.0, 20.0, 0.0, 70.0).collect::<Vec<_>>(), [10.0, 30.0, 50.0]);
         assert_eq!(every(50.0, 20.0, 0.0, 70.0).collect::<Vec<_>>(), [10.0, 30.0, 50.0]);
         assert_eq!(every(0.0, 20.0, 0.0, 40.0).collect::<Vec<_>>(), [0.0, 20.0]);
+    }
+
+    #[test]
+    fn a_grid_page_grows_with_its_squares() {
+        let sheet = Sheet { paper: Paper::Genko, dir: Dir::Vertical, cols: 20, rows: 20, wrap: 0 };
+        let (one, two) = (Grid::new(&sheet, 1.0), Grid::new(&sheet, 2.0));
+        assert!(one.pillar);
+        assert!((two.page - one.page * 2.0).length() < 1e-4);
+        // A vertical page of 20 by 20 is wider than tall: it is printed turned.
+        assert!(one.page.x > one.page.y);
+        let across = Grid::new(&Sheet { dir: Dir::Horizontal, ..sheet }, 1.0);
+        assert!(!across.pillar && across.page.y > across.page.x);
     }
 }

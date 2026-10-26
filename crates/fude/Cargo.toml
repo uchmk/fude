@@ -52,6 +52,8 @@ ito-palette = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299
 ito-console = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # The settings' Advanced page opens the folders in the file manager.
 ito-openin = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
+# The clean copy out as PDF and PNG, and to the printer.
+ito-export = { git = "https://github.com/uchmk/ito", rev = "f916fd612d28b868299cfda542dda8ec0f30275a" }
 # eframe's own defaults, but for `winit/default`: that draws the title on
 # Wayland's window frame with ab_glyph, which brings the unmaintained ttf-parser.
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "links", "wayland", "web_screen_reader", "wgpu", "x11"] }

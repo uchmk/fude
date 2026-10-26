@@ -13,6 +13,7 @@ use ito_prefs::Look;
 use crate::band::{self, Band, Hit};
 use crate::config::{Config, Dir, OnContinue, Paper, COLS, ROWS, WRAP};
 use crate::draw::{self, Drawn, Sheet};
+use crate::keymap::Act;
 use crate::pace::Pace;
 use crate::{layout, notebook, stats, write, App, Screen};
 
@@ -60,6 +61,15 @@ impl Clean {
     pub fn set_sheet(&mut self, sheet: Sheet) {
         if sheet != self.sheet {
             (self.sheet, self.tweaked, self.fresh) = (sheet, true, true);
+        }
+    }
+
+    /// The paper `text` is on when shown, or would open on.
+    pub fn sheet_of(&self, config: &Config, text: &str, shown: bool) -> Sheet {
+        if shown || (self.tweaked && self.seen == *config) {
+            self.sheet
+        } else {
+            Sheet::choose(config, text)
         }
     }
 }
@@ -338,7 +348,7 @@ fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) -> bool {
     let tr = |k: &'static str| t.tr(k).to_owned();
     let sheet = app.clean.sheet;
     let mut to = sheet;
-    let (mut copy, mut write_on) = (false, false);
+    let (mut copy, mut export, mut write_on) = (false, false, false);
     let frame = egui::Frame::NONE.fill(c.side).inner_margin(egui::Margin::symmetric(16, 8));
     egui::Panel::top("fude-clean-tools").frame(frame).show_separator_line(false).show(ui, |ui| {
         let r = ui.max_rect();
@@ -398,12 +408,17 @@ fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) -> bool {
             };
             ito_prefs::status(ui, &words, color);
             copy = keycap(ui, l, "Ctrl+C") | ito_prefs::button(ui, l, &tr("clean.copy"));
+            let key = app.keymap.hint(Act::Export);
+            export = key.is_some_and(|k| keycap(ui, l, &k)) | ito_prefs::button(ui, l, &tr("clean.export"));
             write_on = keycap(ui, l, "Esc") | ito_prefs::button(ui, l, &tr("clean.go_on"));
         });
     });
     app.clean.set_sheet(to);
     if copy {
         app.copy(&ctx, time);
+    }
+    if export {
+        app.choose_export(false);
     }
     write_on
 }

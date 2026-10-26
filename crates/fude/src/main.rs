@@ -12,6 +12,7 @@ mod band;
 mod clean;
 mod config;
 mod draw;
+mod export;
 mod fonts;
 mod help;
 mod i18n;
@@ -25,6 +26,7 @@ mod settings;
 mod shelf;
 mod sound;
 mod stats;
+mod svg;
 mod vertical;
 mod write;
 
@@ -39,6 +41,7 @@ use ito_notices::Kind;
 
 use crate::band::{Band, Edit, Hit};
 use crate::config::{Dir, Paper, TimeStart};
+use crate::export::{What, Whole};
 use crate::keymap::{Act, Keymap};
 use crate::prefs::Prefs;
 use crate::sound::{Cue, Sound};
@@ -154,6 +157,8 @@ pub struct App {
     topic: Option<String>,
     /// The keys' sounds and the bell; none for a script, which is quiet.
     sound: Option<Sound>,
+    /// The thread that makes the exported files, from the first export.
+    export: Option<export::Worker>,
 }
 
 /// What the palette can do.
@@ -173,6 +178,7 @@ enum Command {
     ReportBug,
     ResetScale,
     Quit,
+    Export(export::What, export::Whole),
 }
 
 impl App {
@@ -221,6 +227,7 @@ impl App {
             shelf: shelf::Shelf::default(),
             topic: None,
             sound: None,
+            export: None,
         };
         for w in errors.iter().chain(&warnings) {
             app.say(Kind::Warn, w);
@@ -436,6 +443,8 @@ impl App {
             }
             Act::Quit => self.quit = true,
             Act::Shelf => self.toggle_shelf(),
+            Act::Export => self.choose_export(false),
+            Act::Print => self.choose_export(true),
             Act::Noop => {}
         }
     }
@@ -542,6 +551,12 @@ impl App {
             ito_palette::Entry::new(tr("palette.new"), "Ctrl+N", Command::New),
             ito_palette::Entry::new(tr("palette.shelf"), hint(Act::Shelf), Command::Shelf),
             ito_palette::Entry::new(tr("palette.save"), "Ctrl+S", Command::Save),
+            ito_palette::Entry::new(tr("palette.export_pdf"), hint(Act::Export), Command::Export(What::Pdf, Whole::Piece)),
+            ito_palette::Entry::new(tr("palette.export_png"), "", Command::Export(What::Png, Whole::Piece)),
+            ito_palette::Entry::new(tr("palette.export_note_pdf"), "", Command::Export(What::Pdf, Whole::Note)),
+            ito_palette::Entry::new(tr("palette.export_note_png"), "", Command::Export(What::Png, Whole::Note)),
+            ito_palette::Entry::new(tr("palette.print"), hint(Act::Print), Command::Export(What::Print, Whole::Piece)),
+            ito_palette::Entry::new(tr("palette.print_note"), "", Command::Export(What::Print, Whole::Note)),
             ito_palette::Entry::new(tr("palette.help"), hint(Act::Help), Command::Help),
             ito_palette::Entry::new(tr("palette.report_bug"), "F12", Command::ReportBug),
             ito_palette::Entry::new(tr("palette.reset_scale"), "Ctrl+0", Command::ResetScale),
@@ -617,6 +632,7 @@ impl App {
             Command::ReportBug => self.report_bug(ctx),
             Command::ResetScale => self.scale_to(ctx, ito_common::ScaleTo::Reset),
             Command::Quit => self.quit = true,
+            Command::Export(what, whole) => self.export(ctx, what, whole),
         }
     }
 
@@ -812,6 +828,7 @@ impl eframe::App for App {
         self.script(&ctx);
         self.follow_prefs(&ctx);
         self.follow_notes();
+        self.follow_exports(ui.ctx());
         let typing = self.typing_here();
         // Enter, Backspace and the arrows are the input method's while it composes.
         if typing {
@@ -889,6 +906,9 @@ impl eframe::App for App {
         }
         // The worker binds what is still to be bound before it ends.
         if let Some(w) = &mut self.worker {
+            w.finish();
+        }
+        if let Some(w) = &mut self.export {
             w.finish();
         }
         let Some(script) = &mut self.script else { return };
@@ -1185,6 +1205,42 @@ mod tests {
         assert_eq!(a.screen, Screen::Help);
         frame(&ctx, &mut a, key(egui::Key::Escape, none));
         assert_eq!(a.screen, Screen::Clean, "the key list goes back to the clean copy");
+    }
+
+    /// Ctrl+E on the clean copy offers the ways out, and Enter takes the
+    /// first: the piece as a PDF in its notebook's export folder.
+    #[test]
+    fn the_clean_copy_is_exported() {
+        let dir = std::env::temp_dir().join(format!("fude-export-app-{}", std::process::id()));
+        let ctx = egui::Context::default();
+        let mut a = App::with(Prefs::empty());
+        a.root = Some(dir.clone());
+        // As under --keys, the folder is not opened.
+        a.script = Some(Runner::new(Vec::new(), None));
+        let (ctrl, none) = (egui::Modifiers { ctrl: true, command: true, ..Default::default() }, egui::Modifiers::NONE);
+        frame(&ctx, &mut a, vec![egui::Event::Text("吾輩は猫である。".into())]);
+        frame(&ctx, &mut a, key(egui::Key::Escape, none));
+        let stem = a.piece.clone().expect("leaving the band names the piece");
+        frame(&ctx, &mut a, key(egui::Key::E, ctrl));
+        assert_eq!(a.palette.as_ref().map(|p| p.query.as_str()), Some(a.table.tr("palette.export_query")));
+        frame(&ctx, &mut a, key(egui::Key::Enter, none));
+        assert!(a.palette.is_none());
+        let pdf = a.notes[0].dir.join(export::FOLDER).join(format!("{stem}.pdf"));
+        let said = |a: &App| a.clean.said.as_ref().map(|s| s.0.clone()).unwrap_or_default();
+        let wrote = a.table.trf("export.pdf", &[&Path::new(export::FOLDER).join(format!("{stem}.pdf")).display().to_string()]);
+        for _ in 0..600 {
+            if said(&a) == wrote {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            frame(&ctx, &mut a, Vec::new());
+        }
+        assert_eq!(said(&a), wrote);
+        assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF"));
+        if let Some(w) = &mut a.export {
+            w.finish();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Ctrl+N binds what is written into its piece and starts a new one at

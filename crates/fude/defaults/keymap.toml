@@ -25,3 +25,13 @@ desc = "Quit"
 on = "<C-o>"
 run = "shelf"
 desc = "Open the shelf"
+
+[[app.keymap]]
+on = "<C-e>"
+run = "export"
+desc = "Export the clean copy (PDF / PNG)"
+
+[[app.keymap]]
+on = "<C-p>"
+run = "print"
+desc = "Print the clean copy"

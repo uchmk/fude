@@ -103,7 +103,7 @@ impl App {
 
     /// The notebook written in, in the list (put there when the disk has
     /// not shown it yet).
-    fn ensure_note(&mut self) -> usize {
+    pub fn ensure_note(&mut self) -> usize {
         if let Some(i) = self.notes.iter().position(|n| n.name == self.note) {
             return i;
         }

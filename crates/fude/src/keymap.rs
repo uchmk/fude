@@ -29,6 +29,10 @@ pub enum Act {
     Help,
     /// Open the shelf, or close it.
     Shelf,
+    /// The palette on the ways to export the clean copy.
+    Export,
+    /// The palette on the ways to print it.
+    Print,
     Quit,
     /// Does nothing: a key taken away from a built-in operation.
     Noop,
@@ -41,6 +45,8 @@ pub fn parse(s: &str) -> Result<Act, String> {
         ["settings"] => Ok(Act::Settings),
         ["help"] => Ok(Act::Help),
         ["shelf"] => Ok(Act::Shelf),
+        ["export"] => Ok(Act::Export),
+        ["print"] => Ok(Act::Print),
         ["quit"] => Ok(Act::Quit),
         [w] if *w == NOOP => Ok(Act::Noop),
         _ => Err(format!("`{s}` is not a command")),
@@ -130,6 +136,8 @@ mod tests {
         assert_eq!(km.act(key("<F1>")), Some(Act::Help));
         assert_eq!(km.act(key("<C-q>")), Some(Act::Quit));
         assert_eq!(km.act(key("<C-o>")), Some(Act::Shelf));
+        assert_eq!(km.act(key("<C-e>")), Some(Act::Export));
+        assert_eq!(km.act(key("<C-p>")), Some(Act::Print));
         assert_eq!(km.act(key("a")), None, "a plain letter is the text's");
         assert_eq!(km.hint(Act::Settings).as_deref(), Some("Ctrl+,"));
     }
@@ -178,5 +186,7 @@ mod tests {
         assert_eq!(at(K::F1, M::NONE), Some(Act::Help));
         assert_eq!(at(K::Q, ctrl), Some(Act::Quit));
         assert_eq!(at(K::O, ctrl), Some(Act::Shelf));
+        assert_eq!(at(K::E, ctrl), Some(Act::Export));
+        assert_eq!(at(K::P, ctrl), Some(Act::Print));
     }
 }

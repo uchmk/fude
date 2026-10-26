@@ -1,3 +1,15 @@
 # Checklist
 
-0 checks in TESTING.md, 0 left for a person.
+6 checks in TESTING.md, 6 left for a person.
+
+## 1. Start
+
+- [ ] **1.1** Run `fude` → A window of 1280x800 opens with the title "fude" 〔未訳〕
+- [ ] **1.2** Move and resize the window, close it and start it again → The window comes back at the same place and size 〔未訳〕
+- [ ] **1.3** Press `F12` → The browser opens the repository's new issue form with the version and OS filled in 〔未訳〕
+
+## 2. Export
+
+- [ ] **2.1** On the clean copy, press `Ctrl+E`, then `Enter` → `export\<piece>.pdf` is written in the notebook's folder and the folder opens; the PDF shows the clean copy on A4 in mincho, as the window shows it 〔未訳〕
+- [ ] **2.2** Pick "Export: PNG (the whole notebook)" in the palette, then export a shorter copy the same way → A PNG is written to each page of every piece; no page of the longer copy is left behind 〔未訳〕
+- [ ] **2.3** Press `Ctrl+P`, then `Enter` → The piece goes to the printer, and the tools row says so 〔未訳〕
