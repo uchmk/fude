@@ -480,6 +480,7 @@ mod tests {
         assert!(!b.edit(Edit::Step(1), now, false));
     }
 
+    /// 2.4: no paragraph before the first letter, and none left empty.
     #[test]
     fn enter_ends_a_paragraph_once_and_none_is_left_empty() {
         let (mut b, now) = band(Limits::default());
@@ -519,6 +520,7 @@ mod tests {
         assert_eq!(b.text(), "一\n二\n");
     }
 
+    /// 2.3: Ctrl and the arrows stop just after each punctuation mark.
     #[test]
     fn ctrl_arrows_stop_after_punctuation() {
         let (mut b, now) = band(Limits::default());

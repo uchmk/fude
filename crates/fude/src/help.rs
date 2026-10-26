@@ -1,7 +1,7 @@
 //! The key list (F1 by default): the keymap's own keys as they are now, the
-//! keys fude reads before the keymap, the clean copy's and the shelf's,
-//! drawn by `ito-help` in a card over the writing, the clean copy or the
-//! shelf.
+//! writing band's, the clean copy's and the shelf's, and the keys fude reads
+//! before the keymap, drawn by `ito-help` in a card over the writing, the
+//! clean copy or the shelf.
 
 use egui::{pos2, vec2, Align2, CornerRadius, FontId, Rect, Stroke, StrokeKind, Ui};
 
@@ -33,9 +33,21 @@ impl App {
             ("<C-0>".to_owned(), tr("help.zoom_reset")),
             ("<F12>".to_owned(), tr("help.bug")),
         ];
+        // The writing band's (write.rs `edit_of`), and what the writing
+        // screen reads before the keymap.
+        let write = vec![
+            ("<Left> / <Right>".to_owned(), tr("help.write_step")),
+            ("<C-Left> / <C-Right>".to_owned(), tr("help.write_jump")),
+            ("<Home> / <End>".to_owned(), tr("help.write_ends")),
+            ("<CR>".to_owned(), tr("help.write_paragraph")),
+            ("<BS> / <Del>".to_owned(), tr("help.write_erase")),
+            ("<C-v>".to_owned(), tr("help.write_paste")),
+            ("<Esc>".to_owned(), tr("help.clean_open")),
+            ("<C-n>".to_owned(), tr("help.clean_new")),
+            ("<C-s>".to_owned(), tr("help.clean_save")),
+        ];
         // The clean copy's own keys, read before the keymap too.
         let clean = vec![
-            ("<Esc>".to_owned(), tr("help.clean_open")),
             ("<Esc> / <CR>".to_owned(), tr("help.clean_go_on")),
             ("<C-c>".to_owned(), tr("help.clean_copy")),
             ("<C-n>".to_owned(), tr("help.clean_new")),
@@ -54,9 +66,10 @@ impl App {
         ];
         vec![
             ito_help::Group { title: tr("help.keys"), rows },
-            ito_help::Group { title: tr("help.fixed"), rows: fixed },
+            ito_help::Group { title: tr("help.write"), rows: write },
             ito_help::Group { title: tr("help.clean"), rows: clean },
             ito_help::Group { title: tr("help.shelf"), rows: shelf },
+            ito_help::Group { title: tr("help.fixed"), rows: fixed },
         ]
     }
 
@@ -123,23 +136,22 @@ mod tests {
     use crate::App;
 
     /// The keymap's keys, translated, then the ones read before it: the
-    /// fixed ones, the clean copy's and the shelf's.
+    /// writing band's, the clean copy's, the shelf's and the fixed ones.
     #[test]
     fn the_list_has_the_keymap_and_the_fixed_keys() {
         let mut a = App::with(Prefs::empty());
         let (t, _) = crate::i18n::table("ja");
         a.table = t;
         let groups = a.help_groups();
-        assert_eq!(groups.len(), 4);
+        assert_eq!(groups.len(), 5);
         assert!(groups[0].rows.contains(&("<C-,>".to_owned(), "設定を開く".to_owned())), "{:?}", groups[0].rows);
         assert!(groups[0].rows.iter().any(|(k, _)| k == "<F1>"));
         assert!(groups[0].rows.contains(&("<C-o>".to_owned(), "本棚を開く".to_owned())), "{:?}", groups[0].rows);
-        assert!(groups[1].rows.iter().any(|(k, _)| k == "<Esc>"));
-        assert!(groups[1].rows.iter().all(|(_, d)| !d.is_empty() && !d.starts_with("help.")), "{:?}", groups[1].rows);
-        assert!(groups[2].rows.iter().any(|(k, _)| k == "<C-n>"));
-        assert!(groups[2].rows.iter().all(|(_, d)| !d.is_empty() && !d.starts_with("help.")), "{:?}", groups[2].rows);
-        assert!(groups[3].rows.iter().any(|(k, _)| k == "<F2>"));
-        assert!(groups[3].rows.iter().all(|(_, d)| !d.is_empty() && !d.starts_with("help.")), "{:?}", groups[3].rows);
+        let has = |g: usize, key: &str| groups[g].rows.iter().any(|(k, _)| k == key);
+        assert!(has(1, "<CR>") && has(1, "<Esc>") && has(2, "<C-n>") && has(3, "<F2>") && has(4, "<Esc>"));
+        for g in &groups[1..] {
+            assert!(g.rows.iter().all(|(_, d)| !d.is_empty() && !d.starts_with("help.")), "{:?}", g.rows);
+        }
     }
 
     /// The keys scroll only once the list has been drawn, and stay inside it.

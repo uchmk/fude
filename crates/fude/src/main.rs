@@ -167,7 +167,8 @@ enum Command {
     Clean,
     Write,
     Settings,
-    CleanSettings,
+    /// The settings, on one of their pages.
+    Page(usize),
     Paper(Paper),
     FlipDir,
     Copy,
@@ -541,7 +542,8 @@ impl App {
             ito_palette::Entry::new(tr("palette.clean"), "Esc", Command::Clean),
             ito_palette::Entry::new(tr("palette.write"), "Esc", Command::Write),
             ito_palette::Entry::new(tr("palette.settings"), hint(Act::Settings), Command::Settings),
-            ito_palette::Entry::new(tr("palette.clean_settings"), "", Command::CleanSettings),
+            ito_palette::Entry::new(tr("palette.write_settings"), "", Command::Page(settings::WRITE)),
+            ito_palette::Entry::new(tr("palette.clean_settings"), "", Command::Page(settings::NOTE)),
             ito_palette::Entry::new(tr("palette.paper_genko"), "", Command::Paper(Paper::Genko)),
             ito_palette::Entry::new(tr("palette.paper_ruled"), "", Command::Paper(Paper::Ruled)),
             ito_palette::Entry::new(tr("palette.paper_graph"), "", Command::Paper(Paper::Graph)),
@@ -606,8 +608,8 @@ impl App {
             Command::Write if self.screen == Screen::Clean || self.back == Screen::Clean => self.write_on(),
             Command::Write => self.screen = Screen::Write,
             Command::Settings => self.run(Act::Settings),
-            Command::CleanSettings => {
-                self.prefs.state.page = settings::NOTE;
+            Command::Page(page) => {
+                self.prefs.state.page = page;
                 if self.screen != Screen::Settings {
                     self.toggle(Screen::Settings);
                 }
@@ -1110,6 +1112,20 @@ mod tests {
         a.palette = Some(ito_palette::View::new());
         frame(&ctx, &mut a, key(egui::Key::F1, egui::Modifiers::NONE));
         assert_eq!(a.screen, Screen::Write);
+    }
+
+    /// The palette opens the settings on the writing's page or the
+    /// notebook's, and every command it lists has its words.
+    #[test]
+    fn the_palette_opens_a_settings_page() {
+        let ctx = egui::Context::default();
+        let mut a = App::with(Prefs::empty());
+        let commands = a.commands();
+        assert!(commands.iter().all(|e| !e.title.is_empty() && !e.title.starts_with("palette.")));
+        a.command(&ctx, Command::Page(settings::WRITE));
+        assert_eq!((a.screen, a.prefs.state.page), (Screen::Settings, settings::WRITE));
+        a.command(&ctx, Command::Page(settings::NOTE));
+        assert_eq!((a.screen, a.prefs.state.page), (Screen::Settings, settings::NOTE));
     }
 
     /// A keymap.toml read again remakes the keys; one with a mistake says so.

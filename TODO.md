@@ -9,15 +9,19 @@
 - [x] `keymap.toml` と設定の「キー」ページ: `ito-keys`・`ito-keymap`・`ito-prefs` の `keys_page`。既定のキーは `defaults/keymap.toml`
   （`<C-,>` 設定・`<F1>` ヘルプ・`<C-q>` 終了）。手本は minato の `keymap.rs`・`prefs.rs`。
 - [x] F1 のキー一覧: `ito-help`（`ito-keymap` の一覧を描く）。手本は michi の `app.rs`・`ui.rs`。
-- [ ] 通知と設定の「通知」ページ: `ito-notify`（システムの通知・音・webhook）と `ito-prefs` の `notify_page`。手本は minato の `app.rs`・`settings.rs`。
+- [ ] 通知と設定の「通知」ページ: `ito-notify`（システムの通知・音・webhook）と `ito-prefs` の `notify_page`。
+  間の `[notify]` の読み書きと送る所は michi と kura がそれぞれ書いているので、fude には書かず [uchmk/ito#46](https://github.com/uchmk/ito/issues/46) を待つ。
+  上限に届いた知らせは、今は帯と鈴（0.7.0）。
 - [x] 設定の画面: `ito_prefs::show`（Language・CLOCK・Theme の共通のページ + キー）。手本は minato の `settings.rs`。
 - [x] 窓の場所を戻す: 雛形は `window::Saved` で戻し `Tracker::follow` で書く。終わるときに `Tracker::close`。
 - [ ] 通知を入れる: 設定の読み違い・keymap の警告はベルに出る（0.2.0）。`ito_notices::Notice` を push し（`go` に飛び先の型）、`ito-notify` の `Toast::open` で押すと開くトーストにする。
-- [ ] コマンドパレットの中身: 設定・キー一覧・不具合報告・倍率・終了まで（0.2.0）。`Command` と `commands` に、アプリのコマンドを足す（キーは `ito-keymap` から引く）。手本は minato の `main.rs`。
+  上の「通知」ページと一緒に、#46 が来てから。
+- [x] コマンドパレットの中身: 設定・キー一覧・不具合報告・倍率・終了（0.2.0）、清書・紙・縦横・コピー・新しく書く（0.4.0）、本棚・保存（0.5.0）、
+  書き出し・印刷（0.8.0）、設定の「書く」「このノート」のページ（0.9.0）。
 - [x] 字体（日本語が出る字体を `egui` に足す）。手本は minato の `fonts.rs`。
-- [ ] `TESTING.md` に確認の行を足し、`cargo run --example make-testcheck` で `TESTING-CHECKS.md` を作る。
-- [ ] `icon.rs` に本当のアイコンを描く。
-- [ ] リリースの workflow は kura か yagura のものを写す。
+- [x] `TESTING.md` に確認の行を足し、`cargo run --example make-testcheck` で `TESTING-CHECKS.md` を作る。日本語は `scripts/testcheck-ja.toml`。
+- [x] `icon.rs` に本当のアイコンを描く（朱の原稿用紙の 1 マスと筆の一画）。
+- [x] リリースの workflow: `scripts/lanes.sh sync` が ito の雛形から書く（`lanes.conf` の `workflows=`）。
 
 ## 進め方（版ごと）
 
@@ -30,7 +34,7 @@
 - [x] 0.6.0 書くのを助けるもの: 設定の画面を全部、お題、記録（1 日の字数・続けた日数・1 分の字数）、速さの線。
 - [x] 0.7.0 打つ音: タイプライター・鉛筆の音、上限の知らせの音、音の大きさ。
 - [x] 0.8.0 書き出し: PNG・PDF・印刷（1 篇・1 冊）をノートの `export\` に。
-- [ ] 仕上げ: ヘルプの中身、パレットのコマンド、TESTING.md の行、README、アイコン。
+- [x] 0.9.0 仕上げ: ヘルプの中身、パレットのコマンド、TESTING.md の行、README、アイコン。
 
 ## ito に頼んだもの（来るまで fude に代わりを書かない）
 
@@ -47,3 +51,5 @@
 
 - [ ] [uchmk/ito#43](https://github.com/uchmk/ito/issues/43) 区切りのボタン（seg） → 清書の道具の列（紙・向き・マス・1 行）。今は `ito_prefs::select`。
 - [ ] [uchmk/ito#44](https://github.com/uchmk/ito/issues/44) 塗ったボタン（primary・danger） → 清書の帯の「続きを書く」。今は `ito_prefs::button`。
+- [ ] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → fude の側は直してある（0.8.0・0.9.0）。
+- [ ] [uchmk/ito#46](https://github.com/uchmk/ito/issues/46) 共通の `[notify]` の読み書きと送る所 → 設定の「通知」ページと、上限の知らせをシステムの通知にも。
