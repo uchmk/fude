@@ -20,15 +20,33 @@ pub fn table(code: &str) -> (Table, Vec<String>) {
 mod tests {
     use super::*;
 
-    /// Both files read, and Japanese lays over English.
+    use ito_i18n::check;
+
+    /// Both files read, and Japanese has every English word with the same
+    /// holes to fill.
     #[test]
-    fn the_tables_read() {
-        let (en, errs) = table("en");
-        assert!(errs.is_empty(), "{errs:?}");
-        assert_eq!(en.tr("app.hello"), "Hello from fude.");
-        let (ja, errs) = table("ja");
-        assert!(errs.is_empty(), "{errs:?}");
-        assert_eq!(ja.tr("app.hello"), "fude です。");
-        assert_eq!(ja.tr("app.title"), "fude");
+    fn the_tables_read_and_agree() {
+        for code in ["en", "ja"] {
+            let (_, errs) = table(code);
+            assert!(errs.is_empty(), "{code}: {errs:?}");
+        }
+        assert_eq!(check::translations(TABLES), Vec::<String>::new());
+    }
+
+    /// Each built-in key's description has its Japanese.
+    #[test]
+    fn the_keymap_descriptions_are_translated() {
+        let (km, _) = crate::keymap::Keymap::load(None);
+        let descs: Vec<&str> = km.app.iter().map(|b| b.desc.as_str()).filter(|d| !d.is_empty()).collect();
+        assert!(!descs.is_empty());
+        assert_eq!(check::key_descriptions(TABLES, &descs), Vec::<String>::new());
+    }
+
+    /// Every word the source asks for is in en.toml.
+    #[test]
+    fn the_source_asks_for_words_that_are_there() {
+        let (en, _) = table("en");
+        let src = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src"));
+        assert_eq!(check::source_keys(src, &en, &["i18n.rs"]), Vec::<String>::new());
     }
 }

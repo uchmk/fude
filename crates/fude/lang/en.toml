@@ -1,8 +1,6 @@
 # The app's words by key (English first; ja.toml lays over it).
 [app]
 title = "fude"
-hello = "Hello from fude."
-bug = "Report a problem (F12)"
 
 [title]
 search = "Command palette"
@@ -26,6 +24,32 @@ wait = "waiting"
 [palette]
 hint = "Type a command"
 none = "No command matches"
+settings = "Open the settings"
+help = "Show the key help"
 report_bug = "Report a problem"
 reset_scale = "Reset the scale"
 quit = "Quit"
+
+[write]
+placeholder = "The writing band comes here.  Settings: {0}   Keys: {1}"
+
+[settings]
+display = "Display"
+theme_note = "Your own themes go in"
+no_folder = "There is no config folder, so nothing is saved."
+preview_text = "A clean copy, set on 原稿用紙."
+
+[keys]
+app = "fude"
+fixed = "{} is read before the keymap, so this binding never runs."
+
+[help]
+title = "Keys"
+close = "Esc or F1 closes this list.  ↑ ↓ PgUp PgDn Home End scroll it."
+keys = "The keymap"
+fixed = "Read before the keymap"
+esc = "Close what is open"
+palette = "The command palette"
+zoom = "Scale up / down"
+zoom_reset = "Reset the scale"
+bug = "Report a problem"

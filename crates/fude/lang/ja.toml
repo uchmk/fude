@@ -1,6 +1,5 @@
 [app]
-hello = "fude です。"
-bug = "不具合を報告 (F12)"
+title = "fude"
 
 [title]
 search = "コマンド パレット"
@@ -24,6 +23,37 @@ wait = "待機中"
 [palette]
 hint = "コマンドを入力"
 none = "一致するコマンドはありません"
+settings = "設定を開く"
+help = "キー一覧を表示"
 report_bug = "不具合を報告"
 reset_scale = "拡大率を戻す"
 quit = "終了"
+
+[write]
+placeholder = "ここに書く帯が入ります。  設定: {0}   キー一覧: {1}"
+
+[settings]
+display = "表示"
+theme_note = "自分のテーマを置くフォルダー:"
+no_folder = "設定のフォルダーがないため、保存されません。"
+preview_text = "原稿用紙に清書する。"
+
+[keys]
+app = "fude"
+fixed = "{} はキーマップより先に読むため、この割り当ては効きません。"
+
+[help]
+title = "キー一覧"
+close = "Esc か F1 で閉じる。↑ ↓ PgUp PgDn Home End で送る。"
+keys = "キーマップ"
+fixed = "キーマップより先に読むキー"
+esc = "開いているものを閉じる"
+palette = "コマンド パレット"
+zoom = "拡大 / 縮小"
+zoom_reset = "拡大率を戻す"
+bug = "不具合を報告"
+
+[keydesc]
+"Open the settings" = "設定を開く"
+"Show the key help" = "キー一覧を表示"
+"Quit" = "終了"

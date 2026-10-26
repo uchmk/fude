@@ -22,6 +22,9 @@ Text editor uchmk のアプリで、共通の部品は [ito](https://github.com/
 
 - 一覧は表の中の配列（`recent = ["…"]`、`[[entries]]`）。読むのは `ito_common::kept::read`、書くのは `kept::Writer`（別スレッド・最新が勝つ・`--keys` では書かない）。UI スレッドで書かない。
 - ログは `.log`。キャッシュ・画像・WebView のデータなど、読み戻さないものは対象外。秘密の鍵は `app_dir` の中で、TOML でなくてよい。
+- **書いた文章は対象外。** ノートの篇は人が読む文書なので、ノートのフォルダー（既定 `ドキュメント\fude\<ノート名>\`）に
+  `YYYY-MM-DD_HHMM.txt`（UTF-8・LF）で置く。ノートごとの設定はその中の `fude.toml`。書きかけ（下書き）だけは状態として
+  `state_dir` に TOML で持つ。
 - 詳しくは ito の `docs/common-spec.md` の「設定の形式は TOML」。
 
 ## 作業ルール
