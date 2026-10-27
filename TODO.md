@@ -53,6 +53,8 @@
 - [x] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → v0.116.0 `8eabb2a` に上げた（今は v0.120.0 `20056d2`）。
 - [x] [uchmk/ito#46](https://github.com/uchmk/ito/issues/46) 共通の `[notify]` の読み書きと送る所 → v0.119.2 `ef71a41`。設定の「通知」ページと、上限の知らせをシステムの通知にも。
 - [x] [uchmk/ito#47](https://github.com/uchmk/ito/issues/47) 押すと窓が前に来る通知 → v0.120.0 `20056d2`。上限の知らせに「開く」。
+- [ ] [uchmk/ito#48](https://github.com/uchmk/ito/issues/48) 共通のステータスバー（画面の名前・字数と時間・キーの案内・
+  右端の時計）。モックの `.status` が fude に無く、common.toml の時計がどこにも出ていない。来たら全部の画面の下に置く。
 
 ## 画面の確認（TESTING-CHECKS.md、2026-10-27）で見つけたもの
 
@@ -67,3 +69,5 @@
 - [x] ベルを押しても通知の一覧が開かない → ito v0.116.1 `565a36e` で直った。
 - [x] 設定の「お題を足す」の欄が Enter のあとフォーカスを失う → fude の側で `ito_prefs::field_id` にフォーカスを戻す。
 - [x] `ito_prefs::seg` の選んだ所の字が `on_accent` でなく地の字の色のまま → ito v0.119.1 `e4569fa` で直った。
+- [x] 設定の「このノート」で上限を「自分で決める」にすると、ラベルと説明が細い列に押し込まれて縦に長く折り返す
+  → 数の欄と単位を行の下に出す（`limit_row`）。

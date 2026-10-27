@@ -563,9 +563,10 @@ fn pick<T: PartialEq + Copy>(
 }
 
 /// A limit's row: its presets and "your own", which brings a field for the
-/// number (a number not among the presets shows it too). `words` are the
-/// label, the note, the unit and "your own"; a number typed is taken at the
-/// nearest end of `range`.
+/// number (a number not among the presets shows it too). The field and its
+/// unit go on a line of their own under the row, so the label and the note
+/// keep the row's width. `words` are the label, the note, the unit and "your
+/// own"; a number typed is taken at the nearest end of `range`.
 #[allow(clippy::too_many_arguments)]
 fn limit_row(
     ui: &mut Ui,
@@ -578,30 +579,37 @@ fn limit_row(
     presets: &[(u32, String)],
 ) -> Option<u32> {
     let own_id = egui::Id::new(("fude-own-limit", key));
-    let own = ui.data(|d| d.get_temp::<bool>(own_id)).unwrap_or(false) || !presets.iter().any(|(n, _)| *n == now);
+    let mut own = ui.data(|d| d.get_temp::<bool>(own_id)).unwrap_or(false) || !presets.iter().any(|(n, _)| *n == now);
     let mut options: Vec<(u32, &str)> = presets.iter().map(|(n, w)| (*n, w.as_str())).collect();
     options.push((OWN, own_word));
-    keyed_row(ui, l, key, label, note, |ui| {
-        let mut out = None;
-        if own {
-            ito_prefs::status(ui, unit, l.c.dim);
-            if let Some(typed) = ito_prefs::field(ui, drafts, key, &now.to_string(), "", 72.0) {
-                out = typed.trim().parse::<u64>().ok().map(|n| n.clamp(lo.into(), hi.into()) as u32);
-            }
+    let picked = keyed_row(ui, l, key, label, note, |ui| ito_prefs::select(ui, key, if own { OWN } else { now }, &options));
+    let mut out = match picked {
+        Some(OWN) => {
+            ui.data_mut(|d| d.insert_temp(own_id, true));
+            ui.memory_mut(|m| m.request_focus(ito_prefs::field_id(key)));
+            own = true;
+            None
         }
-        match ito_prefs::select(ui, key, if own { OWN } else { now }, &options) {
-            Some(OWN) => {
-                ui.data_mut(|d| d.insert_temp(own_id, true));
-                ui.memory_mut(|m| m.request_focus(ito_prefs::field_id(key)));
-            }
-            Some(n) => {
-                ui.data_mut(|d| d.remove_temp::<bool>(own_id));
-                out = Some(n);
-            }
-            None => {}
+        Some(n) => {
+            ui.data_mut(|d| d.remove_temp::<bool>(own_id));
+            Some(n)
         }
-        out.filter(|n| *n != now)
-    })
+        None => None,
+    };
+    if own {
+        // Right to left: the unit at the row's right edge, under the
+        // presets, and the field before it.
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ito_prefs::status(ui, unit, l.c.dim);
+                let typed = ito_prefs::field(ui, drafts, key, &now.to_string(), "", 72.0);
+                let typed = typed.and_then(|t| t.trim().parse::<u64>().ok()).map(|n| n.clamp(lo.into(), hi.into()) as u32);
+                out = out.or(typed);
+            });
+        });
+        ui.add_space(10.0);
+    }
+    out.filter(|n| *n != now)
 }
 
 /// fude in the theme in force: a line of text on a rule, with the caret at
