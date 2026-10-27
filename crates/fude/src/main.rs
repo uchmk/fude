@@ -1,10 +1,11 @@
 //! fude: a one-line editor for writing, and a clean copy of what was written.
 //!
-//! What is wired here: the window (its place kept, its own title bar with the
-//! bell and the notice list), common.toml's theme, language and scale, the
-//! keymap, the settings screen, the key list, the palette, `--keys`,
-//! `--version` / `--help`, F12 (the bug report), the writing band with its
-//! draft, the clean copy Esc opens, and the notebooks on the shelf (Ctrl+O).
+//! What is wired here: the window (its place kept and its level as
+//! common.toml's `[window]` says, its own title bar with the bell and the
+//! notice list), common.toml's theme, language and scale, the keymap, the
+//! settings screen, the key list, the palette, `--keys`, `--version` /
+//! `--help`, F12 (the bug report), the writing band with its draft, the clean
+//! copy Esc opens, and the notebooks on the shelf (Ctrl+O).
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
@@ -126,7 +127,15 @@ pub struct App {
     warned: Vec<String>,
     /// The window is to close at the end of this frame.
     quit: bool,
+    /// Writes the window's place while common.toml's `[window]
+    /// remember_place` is on (none for a script's window).
     tracker: Option<Tracker>,
+    /// The `[window] always_on_top` last sent to the window.
+    on_top: bool,
+    /// Whether fude starts at sign-in, as the OS said (none until asked),
+    /// and the answer on its way.
+    startup: Option<bool>,
+    startup_rx: Option<std::sync::mpsc::Receiver<(bool, Option<String>)>>,
     /// The `--keys` script, and what it asked of the frame loop.
     script: Option<Runner>,
     todo: Vec<Do>,
@@ -212,6 +221,9 @@ impl App {
             warned: Vec::new(),
             quit: false,
             tracker: None,
+            on_top: false,
+            startup: None,
+            startup_rx: None,
             script: None,
             todo: Vec::new(),
             band,
@@ -834,8 +846,14 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        if let Some(t) = &mut self.tracker {
+        let window = self.prefs.common.window_or_default();
+        if let Some(t) = self.tracker.as_mut().filter(|_| window.remember_place) {
             t.follow(&ctx);
+        }
+        if window.always_on_top != self.on_top {
+            self.on_top = window.always_on_top;
+            let level = if self.on_top { egui::WindowLevel::AlwaysOnTop } else { egui::WindowLevel::Normal };
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
         }
         self.script(&ctx);
         // A click on a limit's notification only brings the window forward:
@@ -916,7 +934,7 @@ impl eframe::App for App {
     /// closes, and a window that closes while a script runs says so in the
     /// done file.
     fn on_exit(&mut self) {
-        if let Some(t) = &mut self.tracker {
+        if let Some(t) = self.tracker.as_mut().filter(|_| self.prefs.common.window_or_default().remember_place) {
             t.close(None);
         }
         self.bind_piece();
@@ -1037,6 +1055,10 @@ fn main() -> eframe::Result {
     }
     // A script plays on a window that keeps no place, and leaves none.
     let saved = if script.is_none() { Saved::load(ito_common::state_dir("fude")) } else { Saved::load(None) };
+    // Told not to keep its place, the window opens as new, and is followed
+    // again once that is turned back on.
+    let first = ito_common::base_dir().and_then(|b| ito_common::Common::read(&b).ok()).unwrap_or_default().0.window_or_default();
+    let opened = if first.remember_place { saved.clone() } else { Saved::load(None) };
     // Nor does it go on from the draft, or write one.
     let draft =
         ito_common::state_dir("fude").filter(|_| script.is_none()).map(|d| ito_common::kept::Writer::new(d.join("draft.toml"), true));
@@ -1047,12 +1069,14 @@ fn main() -> eframe::Result {
         .with_icon(std::sync::Arc::new(egui::IconData { rgba: icon::pixels(ICON_PX), width: ICON_PX, height: ICON_PX }));
     // The bar is the app's own (the Mac keeps its traffic lights over it).
     let viewport = ito_titlebar::frameless(viewport);
-    let options = eframe::NativeOptions { viewport: saved.viewport(viewport), ..Default::default() };
+    let viewport = opened.viewport(viewport);
+    let viewport = if first.always_on_top { viewport.with_always_on_top() } else { viewport };
+    let options = eframe::NativeOptions { viewport, ..Default::default() };
     eframe::run_native(
         "fude",
         options,
         Box::new(move |cc| {
-            saved.put(cc);
+            opened.put(cc);
             let mut prefs = Prefs::load(ito_common::base_dir());
             ito_prefs::notify_window(&cc.egui_ctx);
             fonts::load_in_background(cc.egui_ctx.clone());
@@ -1063,6 +1087,7 @@ fn main() -> eframe::Result {
             cc.egui_ctx.set_zoom_factor(prefs.common.scale_or_one());
             let mut app = App::with(prefs);
             app.tracker = saved.tracker();
+            app.on_top = first.always_on_top;
             // The writing goes on where it was left, in the notebook it was
             // in. A script keeps its notebooks in memory, unless it is given
             // a documents folder of its own.

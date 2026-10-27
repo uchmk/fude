@@ -1,6 +1,7 @@
 //! The settings screen (Ctrl+,): `ito-prefs` draws the nav and the cards,
 //! and the rows common to every uchmk app (the language, the scale, the
-//! theme) write common.toml. The Writing page is fude's own, written to
+//! clock, the window, the theme) write common.toml; the Startup card asks the
+//! OS, off the UI thread. The Writing page is fude's own, written to
 //! config.toml: the clock and the band, the same in every notebook and in
 //! force at once, the sounds, and the clean copy's letters and pace. The This notebook
 //! page is the open notebook's, written to the fude.toml in its folder: the
@@ -140,6 +141,8 @@ fn index<'a>(w: &'static Words, more: &'static MoreWords, kw: &'static KeyWords,
     ]
     .into_iter()
     .chain(ito_prefs::GENERAL_KEYS.map(|k| (GENERAL, k)))
+    .chain(ito_prefs::WINDOW_KEYS.map(|k| (GENERAL, k)))
+    .chain(ito_prefs::window_index(more).into_iter().chain(ito_prefs::startup_index(more)).map(|t| (GENERAL, t)))
     .chain(WRITE_KEYS.map(|k| (WRITE, k)))
     .chain(NOTE_KEYS.map(|k| (NOTE, k)))
     .chain(ito_prefs::keys_index(kw).into_iter().map(|t| (KEYS, t)))
@@ -178,6 +181,9 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     let mut key_edits = Vec::new();
     let mut advanced = Vec::new();
     let mut bug = false;
+    let mut forget = false;
+    let mut startup_toggled = None;
+    let startup_now = app.startup;
     let mut config_asked = Vec::new();
     let topics = app.prefs.topics();
     let notify = app.prefs.notify.clone();
@@ -197,6 +203,10 @@ pub fn show(ui: &mut Ui, app: &mut App) {
                 asked.extend(ito_prefs::scale_row(ui, l, w, common.scale_or_one(), ""));
             });
             asked.extend(ito_prefs::clock_card(ui, l, w, &common.clock_or(None)));
+            let window = ito_prefs::window_card(ui, l, more, &common.window_or_default());
+            asked.extend(window.changes);
+            forget |= window.forget;
+            startup_toggled = ito_prefs::startup_card(ui, l, more, startup_now);
         }
         WRITE => config_asked = write_page(ui, l, t, config),
         NOTE => config_asked = note_page(ui, l, t, config, drafts, &topics),
@@ -257,6 +267,28 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     if bug {
         app.report_bug(ui.ctx());
     }
+    if forget {
+        if let Some(dir) = state_dir.clone() {
+            std::thread::spawn(move || {
+                let _ = ito_prefs::forget_place(&dir);
+            });
+        }
+    }
+    if let Some(on) = startup_toggled {
+        app.startup = None;
+        app.startup_rx = Some(startup_task(ui.ctx(), Some(on)));
+    }
+    if let Some((on, err)) = app.startup_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+        app.startup = Some(on);
+        app.startup_rx = None;
+        if let Some(e) = err {
+            app.say(ito_notices::Kind::Err, &e);
+        }
+    }
+    // The OS is asked once the General page shows, not at every start.
+    if app.startup.is_none() && app.startup_rx.is_none() && app.prefs.state.page == GENERAL {
+        app.startup_rx = Some(startup_task(ui.ctx(), None));
+    }
     for a in advanced {
         match a {
             ito_prefs::Advanced::OpenConfigDir => match app.prefs.base.clone() {
@@ -298,6 +330,22 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     if let Some(cue) = heard.into_iter().find_map(|k| hear(k, &app.prefs.config)) {
         app.sound(cue, Instant::now());
     }
+}
+
+/// Whether fude starts at sign-in, read on a thread of its own after it is
+/// first set to `set`, when that is given, and why setting it failed.
+fn startup_task(ctx: &egui::Context, set: Option<bool>) -> std::sync::mpsc::Receiver<(bool, Option<String>)> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        let err = set.and_then(|on| {
+            let exe = std::env::current_exe().map_err(|e| e.to_string());
+            exe.and_then(|exe| ito_common::startup::set("fude", &exe, &[], on)).err()
+        });
+        let _ = tx.send((ito_common::startup::enabled("fude"), err));
+        ctx.request_repaint();
+    });
+    rx
 }
 
 /// What `key` just set to as in `c` sounds like, if anything.

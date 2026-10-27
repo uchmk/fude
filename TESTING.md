@@ -91,6 +91,8 @@ writes what is left to `TESTING-CHECKS.md`.
 | 8.3 | On This notebook, change the paper and the limits | They are written to `[note]` in the notebook's `fude.toml`, and another notebook keeps its own |
 | 8.4 | Change the theme in another uchmk app | fude follows it without a restart |
 | 8.5 | On Notifications, turn on the sound and pick another one | They are written to `[notify]` in `config.toml`; "Back to the defaults" sets the sound off and the chime again |
+| 8.6 | On General, turn off "Remember the window's place", move the window, then restart; turn it on again, then "Always on top" and "Forget" | Off, the window opens where the OS puts it and keeps no new place; "Always on top" takes effect at once, and "Forget" opens the next start where the OS puts it. All but "Forget" go to `[window]` in `common.toml` |
+| 8.7 | On General, turn on "Start at sign-in", sign out and in, then turn it off | fude starts at sign-in only while it is on; the switch shows what the OS says when the page opens |
 
 ## 9. Keys, the help and the palette
 
