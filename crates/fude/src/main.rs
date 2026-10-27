@@ -27,6 +27,7 @@ mod settings;
 mod shelf;
 mod sound;
 mod stats;
+mod status;
 mod svg;
 mod vertical;
 mod write;
@@ -408,6 +409,8 @@ impl App {
             self.prefs.set_scale(next);
             ctx.set_zoom_factor(next);
         }
+        // Said at a limit too, where the scale stays as it is.
+        ito_statusbar::scale_changed(ctx, next);
     }
 
     /// The keys the keymap binds, taken out of the frame's events before the
@@ -868,6 +871,13 @@ impl eframe::App for App {
                 self.title_bar(ui);
             },
         );
+        if self.screen != Screen::Settings {
+            egui::Panel::bottom("fude-status")
+                .exact_size(ito_statusbar::HEIGHT)
+                .frame(egui::Frame::NONE)
+                .show_separator_line(false)
+                .show(ui, |ui| status::show(ui, self, 1.0 - 0.85 * hush));
+        }
         // The screen may have changed under the keys just now.
         let typing = typing && self.typing_here();
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(ito_theme::colors().bg)).show(ui, |ui| match self.screen {

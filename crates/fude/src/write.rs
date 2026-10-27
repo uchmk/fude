@@ -321,6 +321,33 @@ enum Tone {
     Key,
 }
 
+/// The letters and the time against their limits, as much of them as `show`
+/// asks for, each with whether it is near or past its limit: what the hint
+/// and the status bar say.
+pub fn counts(b: &Band, show: Show, now: Instant, t: &ito_i18n::Table) -> Vec<(String, bool)> {
+    let (n, cc, tc, el) = (b.count(), b.char_cap(), b.time_cap(), b.elapsed(now));
+    let mut parts = Vec::new();
+    if matches!(show, Show::Both | Show::Chars) {
+        let n_s = n.to_string();
+        parts.push(if cc > 0 {
+            (t.trf("write.hint_chars_of", &[&n_s, &cc.to_string()]), n as f64 >= f64::from(cc) * 0.9)
+        } else {
+            (t.trf("write.hint_chars", &[&n_s]), false)
+        });
+    }
+    if matches!(show, Show::Both | Show::Time) {
+        parts.push(if tc.is_zero() {
+            (band::fmt(el, false), false)
+        } else if el > tc {
+            (t.trf("write.hint_over", &[&band::fmt(tc, false), &band::fmt(el - tc, false)]), true)
+        } else {
+            let left = tc - el;
+            (t.trf("write.hint_left", &[&band::fmt(left, true)]), left <= Duration::from_secs(30))
+        });
+    }
+    parts
+}
+
 /// The hint by the input point: the letters and the time against their
 /// limits, or before the first letter what the limits are and where to set
 /// them. It goes quiet while letters come.
@@ -331,7 +358,7 @@ fn hint(ui: &egui::Ui, painter: &Painter, p: Pos2, v: &View, busy: bool) {
     let tr = |k: &'static str| t.tr(k).to_owned();
     let trf = |k: &'static str, a: &[&str]| t.trf(k, a);
     let b = v.band;
-    let (n, cc, tc, el) = (b.count(), b.char_cap(), b.time_cap(), b.elapsed(v.now));
+    let (cc, tc) = (b.char_cap(), b.time_cap());
     let show = v.config.show;
     let mut parts: Vec<(String, Tone)> = Vec::new();
     if !b.started() {
@@ -342,26 +369,8 @@ fn hint(ui: &egui::Ui, painter: &Painter, p: Pos2, v: &View, busy: bool) {
         parts.push((if tc.is_zero() { tr("write.hint_time_counts") } else { tr("write.hint_time_moves") }, Tone::Dim));
         parts.push((tr("write.hint_limits"), Tone::Dim));
         parts.push((v.settings_key.to_owned(), Tone::Key));
-    } else if show != Show::Nothing {
-        if show != Show::Time {
-            let n_s = n.to_string();
-            parts.push(if cc > 0 {
-                let near = n as f64 >= f64::from(cc) * 0.9;
-                (trf("write.hint_chars_of", &[&n_s, &cc.to_string()]), if near { Tone::Warn } else { Tone::Dim })
-            } else {
-                (trf("write.hint_chars", &[&n_s]), Tone::Dim)
-            });
-        }
-        if show != Show::Chars {
-            parts.push(if tc.is_zero() {
-                (band::fmt(el, false), Tone::Dim)
-            } else if el > tc {
-                (trf("write.hint_over", &[&band::fmt(tc, false), &band::fmt(el - tc, false)]), Tone::Warn)
-            } else {
-                let left = tc - el;
-                (trf("write.hint_left", &[&band::fmt(left, true)]), if left <= Duration::from_secs(30) { Tone::Warn } else { Tone::Dim })
-            });
-        }
+    } else {
+        parts.extend(counts(b, show, v.now, t).into_iter().map(|(s, warn)| (s, if warn { Tone::Warn } else { Tone::Dim })));
     }
     if b.back() > 0 {
         let rest = b.rest();
