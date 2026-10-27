@@ -531,11 +531,21 @@ impl App {
             ui,
             &spec,
             |ui, rect| {
-                let galley = ui.painter().layout_no_wrap(name, egui::FontId::proportional(13.0), ito_theme::colors().fg);
-                let x = rect.left() + 12.0;
-                let right = x + galley.size().x;
-                ui.painter().galley(egui::pos2(x, rect.center().y - galley.size().y / 2.0), galley, egui::Color32::WHITE);
-                right
+                // The mock's logo: 筆 in the accent's Mincho, then the name on
+                // the same baseline (the two fonts' lines differ in height).
+                let c = ito_theme::colors();
+                let p = ui.painter();
+                let mark = p.layout_no_wrap("筆".into(), egui::FontId::new(17.0, fonts::mincho(ui.ctx())), c.run);
+                let word = p.layout_no_wrap(name.clone(), egui::FontId::proportional(13.0), c.fg);
+                let baseline = |g: &egui::Galley| g.rows.first().and_then(|r| Some(r.pos.y + r.row.glyphs.first()?.pos.y));
+                let line = rect.center().y - word.size().y / 2.0 + baseline(&word).unwrap_or(word.size().y);
+                let mut x = rect.left() + 12.0;
+                for (galley, gap) in [(mark, 6.0), (word, 0.0)] {
+                    let (w, top) = (galley.size().x, line - baseline(&galley).unwrap_or(galley.size().y));
+                    p.galley(egui::pos2(x, top), galley, c.fg);
+                    x += w + gap;
+                }
+                x
             },
             |_, _| {},
         );
@@ -842,7 +852,9 @@ impl App {
             table: &self.table,
             topic: self.topic.as_deref(),
         };
-        write::draw(ui, rect, &view);
+        if write::draw(ui, rect, &view) {
+            self.open_clean();
+        }
     }
 }
 
@@ -892,13 +904,11 @@ impl eframe::App for App {
                 self.title_bar(ui);
             },
         );
-        if self.screen != Screen::Settings {
-            egui::Panel::bottom("fude-status")
-                .exact_size(ito_statusbar::HEIGHT)
-                .frame(egui::Frame::NONE)
-                .show_separator_line(false)
-                .show(ui, |ui| status::show(ui, self, 1.0 - 0.85 * hush));
-        }
+        egui::Panel::bottom("fude-status")
+            .exact_size(ito_statusbar::HEIGHT)
+            .frame(egui::Frame::NONE)
+            .show_separator_line(false)
+            .show(ui, |ui| status::show(ui, self, 1.0 - 0.85 * hush));
         // The screen may have changed under the keys just now.
         let typing = typing && self.typing_here();
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(ito_theme::colors().bg)).show(ui, |ui| match self.screen {

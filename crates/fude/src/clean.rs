@@ -346,8 +346,8 @@ fn keycap(ui: &mut Ui, l: Look, words: &str) -> bool {
 }
 
 /// The row under the banner that changes the paper for this clean copy
-/// (the settings stay as they are), with the counts and the copy and export
-/// buttons. Writing on is the banner's.
+/// (the settings stay as they are), with the counts and the copy, save and
+/// export buttons. Writing on is the banner's.
 fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) {
     let ctx = ui.ctx().clone();
     let c = l.c;
@@ -355,7 +355,7 @@ fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) {
     let tr = |k: &'static str| t.tr(k).to_owned();
     let sheet = app.clean.sheet;
     let mut to = sheet;
-    let (mut copy, mut export) = (false, false);
+    let (mut copy, mut save, mut export) = (false, false, false);
     let frame = egui::Frame::NONE.fill(c.side).inner_margin(egui::Margin::symmetric(16, 8));
     egui::Panel::top("fude-clean-tools").frame(frame).show_separator_line(false).show(ui, |ui| {
         let r = ui.max_rect();
@@ -418,6 +418,7 @@ fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) {
             };
             ito_prefs::status(ui, &words, color);
             copy = keycap(ui, l, "Ctrl+C") | ito_prefs::button(ui, l, &tr("clean.copy"));
+            save = keycap(ui, l, "Ctrl+S") | ito_prefs::button(ui, l, &tr("clean.save"));
             let key = app.keymap.hint(Act::Export);
             export = key.is_some_and(|k| keycap(ui, l, &k)) | ito_prefs::button(ui, l, &tr("clean.export"));
         });
@@ -425,6 +426,9 @@ fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) {
     app.clean.set_sheet(to);
     if copy {
         app.copy(&ctx, time);
+    }
+    if save {
+        app.save_piece(time);
     }
     if export {
         app.choose_export(false);

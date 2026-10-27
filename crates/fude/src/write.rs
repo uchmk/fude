@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use egui::epaint::TextShape;
 use egui::text::{LayoutJob, TextFormat, TextWrapping};
-use egui::{pos2, vec2, Align, Color32, Event, FontId, Key, Painter, Pos2, Rect, Stroke};
+use egui::{pos2, vec2, Align, Color32, Event, FontId, Key, Layout, Painter, Pos2, Rect, Sense, Stroke};
 
 use crate::band::{self, Band, Edit, Hit};
 use crate::config::{Config, Dir, Point, Show};
@@ -112,11 +112,12 @@ struct Faces {
 }
 
 /// The band, the hint, the caret, the limit's band and the bars, in `rect`.
-pub fn draw(ui: &egui::Ui, rect: Rect, v: &View) {
-    let ctx = ui.ctx();
+/// True when the limit's band was asked for the clean copy.
+pub fn draw(ui: &mut egui::Ui, rect: Rect, v: &View) -> bool {
+    let ctx = ui.ctx().clone();
     let c = ito_theme::colors();
     let fs = v.config.font_size as f32;
-    let f = Faces { letter: FontId::new(fs, fonts::mincho(ctx)), mark: FontId::proportional(fs * 0.55), ink: c.strong() };
+    let f = Faces { letter: FontId::new(fs, fonts::mincho(&ctx)), mark: FontId::proportional(fs * 0.55), ink: c.strong() };
     let p = point(rect, v.config);
     let painter = ui.painter().with_clip_rect(rect);
     let (before, after) = v.band.split();
@@ -153,11 +154,12 @@ pub fn draw(ui: &egui::Ui, rect: Rect, v: &View) {
     topic(ui, &painter, rect, p, v, typing(time, v.typed_at));
     caret(ui, &painter, caret_at(rect, v.config), time, v.typed_at);
     bars(ui, &painter, rect, v);
-    banner(ui, rect, v);
+    let see_clean = banner(ui, rect, v);
     if v.band.running() {
         let ms = v.band.elapsed(v.now).as_millis() as u64;
         ctx.request_repaint_after(Duration::from_millis(1000 - ms % 1000));
     }
+    see_clean
 }
 
 /// A horizontal line of `chars`, each paragraph's end a small ¶, then
@@ -317,8 +319,19 @@ enum Tone {
     Warn,
     /// The cursor is back in the text.
     Mid,
-    /// A key, set as a key cap right after the part before.
+    /// A key, set as a key cap.
     Key,
+}
+
+/// `words` with the key cap `key` where its `{0}` is: "上限は設定 {0}" gives
+/// the words, then the cap.
+fn with_key(words: &str, key: &str, tone: Tone) -> Vec<(String, Tone)> {
+    let (before, after) = words.split_once("{0}").unwrap_or((words, ""));
+    [(before.trim(), tone), (key, Tone::Key), (after.trim(), tone)]
+        .into_iter()
+        .filter(|(s, _)| !s.is_empty())
+        .map(|(s, tone)| (s.to_owned(), tone))
+        .collect()
 }
 
 /// The letters and the time against their limits, as much of them as `show`
@@ -350,7 +363,8 @@ pub fn counts(b: &Band, show: Show, now: Instant, t: &ito_i18n::Table) -> Vec<(S
 
 /// The hint by the input point: the letters and the time against their
 /// limits, or before the first letter what the limits are and where to set
-/// them. It goes quiet while letters come.
+/// them. It goes quiet while letters come. Its parts are set apart with a
+/// dot; a key cap and the words around it are one part.
 fn hint(ui: &egui::Ui, painter: &Painter, p: Pos2, v: &View, busy: bool) {
     let ctx = ui.ctx();
     let c = ito_theme::colors();
@@ -360,21 +374,28 @@ fn hint(ui: &egui::Ui, painter: &Painter, p: Pos2, v: &View, busy: bool) {
     let b = v.band;
     let (cc, tc) = (b.char_cap(), b.time_cap());
     let show = v.config.show;
-    let mut parts: Vec<(String, Tone)> = Vec::new();
+    let mut parts: Vec<Vec<(String, Tone)>> = Vec::new();
     if !b.started() {
-        parts.push((if cc > 0 { trf("write.hint_chars_of", &["0", &cc.to_string()]) } else { trf("write.hint_chars", &["0"]) }, Tone::Dim));
+        parts.push(vec![(
+            if cc > 0 { trf("write.hint_chars_of", &["0", &cc.to_string()]) } else { trf("write.hint_chars", &["0"]) },
+            Tone::Dim,
+        )]);
         if !tc.is_zero() {
-            parts.push((band::fmt(tc, true), Tone::Dim));
+            parts.push(vec![(band::fmt(tc, true), Tone::Dim)]);
         }
-        parts.push((if tc.is_zero() { tr("write.hint_time_counts") } else { tr("write.hint_time_moves") }, Tone::Dim));
-        parts.push((tr("write.hint_limits"), Tone::Dim));
-        parts.push((v.settings_key.to_owned(), Tone::Key));
+        parts.push(vec![(if tc.is_zero() { tr("write.hint_time_counts") } else { tr("write.hint_time_moves") }, Tone::Dim)]);
+        parts.push(with_key(t.tr("write.hint_limits"), v.settings_key, Tone::Dim));
     } else {
-        parts.extend(counts(b, show, v.now, t).into_iter().map(|(s, warn)| (s, if warn { Tone::Warn } else { Tone::Dim })));
+        parts.extend(counts(b, show, v.now, t).into_iter().map(|(s, warn)| vec![(s, if warn { Tone::Warn } else { Tone::Dim })]));
     }
     if b.back() > 0 {
         let rest = b.rest();
-        parts.insert(0, (if rest > 0 { trf("write.hint_back", &[&rest.to_string()]) } else { tr("write.hint_end") }, Tone::Mid));
+        if rest > 0 {
+            parts.insert(0, vec![(trf("write.hint_back", &[&rest.to_string()]), Tone::Mid)]);
+            parts.insert(1, with_key(t.tr("write.hint_back_key"), "End", Tone::Mid));
+        } else {
+            parts.insert(0, with_key(t.tr("write.hint_end"), "End", Tone::Mid));
+        }
     }
     if parts.is_empty() {
         return;
@@ -384,20 +405,27 @@ fn hint(ui: &egui::Ui, painter: &Painter, p: Pos2, v: &View, busy: bool) {
     let gap = font.size * 0.55;
     let format = |font_id: &FontId, color| TextFormat { font_id: font_id.clone(), color, valign: Align::Center, ..Default::default() };
     let mut job = LayoutJob::default();
-    for (i, (s, tone)) in parts.iter().enumerate() {
-        if *tone == Tone::Key {
-            job.append(&format!(" {s} "), font.size * 0.35, TextFormat { background: c.raised(), ..format(&small, c.dim) });
-            continue;
-        }
+    for (i, part) in parts.iter().enumerate() {
         if i > 0 {
             job.append("·", gap, format(&font, c.faint()));
         }
-        let color = match tone {
-            Tone::Warn => c.wait,
-            Tone::Mid => c.blue,
-            _ => c.dim,
-        };
-        job.append(s, if i > 0 { gap } else { 0.0 }, format(&font, color));
+        for (j, (s, tone)) in part.iter().enumerate() {
+            let lead = match (i, j) {
+                (0, 0) => 0.0,
+                (_, 0) => gap,
+                _ => font.size * 0.35,
+            };
+            if *tone == Tone::Key {
+                job.append(&format!(" {s} "), lead, TextFormat { background: c.raised(), ..format(&small, c.dim) });
+                continue;
+            }
+            let color = match tone {
+                Tone::Warn => c.wait,
+                Tone::Mid => c.blue,
+                _ => c.dim,
+            };
+            job.append(s, lead, format(&font, color));
+        }
     }
     let g = painter.layout_job(job);
     let fs = v.config.font_size as f32;
@@ -498,8 +526,8 @@ pub fn hit_words(b: &Band, t: &ito_i18n::Table) -> String {
 
 /// The band that slides down from the top when a limit is reached. The
 /// writing goes on under it.
-fn banner(ui: &egui::Ui, rect: Rect, v: &View) {
-    let ctx = ui.ctx();
+fn banner(ui: &mut egui::Ui, rect: Rect, v: &View) -> bool {
+    let ctx = ui.ctx().clone();
     let c = ito_theme::colors();
     let t = v.table;
     let tr = |k: &'static str| t.tr(k).to_owned();
@@ -516,21 +544,40 @@ fn banner(ui: &egui::Ui, rect: Rect, v: &View) {
     };
     let shown = ctx.animate_bool_with_time_and_easing(id, on, 0.25, egui::emath::easing::cubic_out);
     if shown <= 0.0 {
-        return;
+        return false;
     }
-    let h = ito_theme::zoomed(ctx, 34.0);
+    let h = ito_theme::zoomed(&ctx, 44.0);
     let r = Rect::from_min_size(pos2(rect.left(), rect.top() - (1.0 - shown) * h), vec2(rect.width(), h));
     let painter = ui.painter().with_clip_rect(rect);
     painter.rect_filled(r, 0.0, ito_theme::mix(c.panel, c.wait, 0.11));
     painter.hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, c.border));
-    painter.circle_filled(pos2(r.left() + 20.0, r.center().y), 4.0, c.wait);
-    let font = FontId::proportional(ito_theme::zoomed(ctx, 13.0));
-    let format = |color| TextFormat { font_id: font.clone(), color, valign: Align::Center, ..Default::default() };
-    let mut job = LayoutJob::default();
-    job.append(&words, 0.0, format(c.strong()));
-    job.append(&tr("write.go_on"), font.size * 0.8, format(c.dim));
-    let g = painter.layout_job(job);
-    painter.galley(pos2(r.left() + 34.0, r.center().y - g.size().y / 2.0), g, c.dim);
+    let l = ito_prefs::Look { c, q: "" };
+    let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(16.0, 0.0))).layout(Layout::right_to_left(Align::Center)));
+    ui.set_clip_rect(r.intersect(rect));
+    if !on {
+        ui.disable();
+    }
+    // The keys write here, so a button never keeps the focus, and only the
+    // pointer presses it: a space typed after Tab stays a space.
+    let pressed = |r: egui::Response| {
+        if r.has_focus() {
+            r.surrender_focus();
+        }
+        r.clicked_by(egui::PointerButton::Primary)
+    };
+    let see = pressed(ito_prefs::button_with(&mut ui, l, &tr("write.see_clean"), ito_prefs::Tone::Plain));
+    let esc = pressed(ito_prefs::keycap(&mut ui, l, "Esc", false));
+    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+        let (dot_at, _) = ui.allocate_exact_size(vec2(14.0, h), Sense::hover());
+        ui.painter().circle_filled(pos2(dot_at.left() + 4.0, dot_at.center().y), 4.0, c.wait);
+        let font = FontId::proportional(ito_theme::zoomed(&ctx, 13.0));
+        let format = |color| TextFormat { font_id: font.clone(), color, valign: Align::Center, ..Default::default() };
+        let mut job = LayoutJob::default();
+        job.append(&words, 0.0, format(c.strong()));
+        job.append(&tr("write.go_on"), font.size * 0.8, format(c.dim));
+        ui.add(egui::Label::new(job).truncate());
+    });
+    on && (see || esc)
 }
 
 #[cfg(test)]

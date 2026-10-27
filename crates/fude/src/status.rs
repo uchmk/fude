@@ -1,8 +1,8 @@
 //! The status bar along the window's foot (`ito-statusbar`): the screen,
 //! the letters and the time against their limits, the paper the clean copy
 //! opens on, the keys of the screen, the settings and, at the right end, the
-//! clock as common.toml sets it. It fades with the title bar while letters
-//! come; the settings screen has none.
+//! clock as common.toml sets it, on every screen. It fades with the title
+//! bar while letters come.
 
 use std::time::Instant;
 
@@ -28,39 +28,44 @@ pub fn show(ui: &mut egui::Ui, app: &mut App, opacity: f32) {
             }
             Screen::Clean => ("status.clean", t.tr("status.keys_clean").to_owned()),
             Screen::Shelf => ("status.shelf", t.tr("status.keys_close").to_owned()),
-            Screen::Help | Screen::Settings => ("status.help", t.tr("status.keys_close").to_owned()),
+            Screen::Help => ("status.help", t.tr("status.keys_close").to_owned()),
+            Screen::Settings => ("status.settings_screen", t.tr("status.keys_settings").to_owned()),
         };
         dot(ui, c.blue);
         item(ui, t.tr(name), c.fg);
-        if matches!(app.screen, Screen::Write | Screen::Clean) {
-            let b = &app.band;
-            let counts = write::counts(b, config.show, Instant::now(), t);
-            if !counts.is_empty() {
-                divider(ui);
-                let last = counts.len() - 1;
-                for (i, (words, warn)) in counts.into_iter().enumerate() {
-                    let stopped = app.screen == Screen::Write && i == last && b.started() && !b.running();
-                    let words = if stopped { words + t.tr("status.stopped") } else { words };
-                    item(ui, &words, if warn { c.wait } else { c.dim });
-                }
+        let b = &app.band;
+        let counts = write::counts(b, config.show, Instant::now(), t);
+        if !counts.is_empty() {
+            divider(ui);
+            let last = counts.len() - 1;
+            for (i, (words, warn)) in counts.into_iter().enumerate() {
+                let stopped = app.screen == Screen::Write && i == last && b.started() && !b.running();
+                let words = if stopped { words + t.tr("status.stopped") } else { words };
+                item(ui, &words, if warn { c.wait } else { c.dim });
             }
         }
-        if app.screen == Screen::Write {
-            divider(ui);
-            let sheet = app.clean.sheet_of(&config, &app.band.text(), false);
-            let paper = match sheet.paper {
-                Paper::Ruled => "clean.ruled",
-                Paper::Graph => "clean.graph",
-                Paper::Plain => "clean.plain",
-                Paper::Genko | Paper::Auto => "clean.genko",
-            };
-            let dir = t.tr(if sheet.dir == Dir::Vertical { "clean.vertical" } else { "clean.horizontal" });
-            let size = match (sheet.paper, sheet.wrap) {
-                (Paper::Genko, _) => format!("{}×{}", sheet.cols, sheet.rows),
-                (_, 0) => t.tr("clean.auto").to_owned(),
-                (_, w) => t.trf("clean.to_chars", &[&w.to_string()]),
-            };
-            let r = ui.scope(|ui| link(ui, &t.trf("status.form", &[t.tr(paper), dir, &size])));
+        // The paper the clean copy is on, or opens on: on the clean copy (or
+        // the key list over it) it only says so, elsewhere it opens it.
+        divider(ui);
+        let shown = app.screen == Screen::Clean || (app.screen == Screen::Help && app.back == Screen::Clean);
+        let sheet = app.clean.sheet_of(&config, &b.text(), shown);
+        let paper = match sheet.paper {
+            Paper::Ruled => "clean.ruled",
+            Paper::Graph => "clean.graph",
+            Paper::Plain => "clean.plain",
+            Paper::Genko | Paper::Auto => "clean.genko",
+        };
+        let dir = t.tr(if sheet.dir == Dir::Vertical { "clean.vertical" } else { "clean.horizontal" });
+        let size = match (sheet.paper, sheet.wrap) {
+            (Paper::Genko, _) => format!("{}×{}", sheet.cols, sheet.rows),
+            (_, 0) => t.tr("clean.auto").to_owned(),
+            (_, w) => t.trf("clean.to_chars", &[&w.to_string()]),
+        };
+        let form = t.trf("status.form", &[t.tr(paper), dir, &size]);
+        if shown {
+            item(ui, &form, c.dim);
+        } else {
+            let r = ui.scope(|ui| link(ui, &form));
             to_clean = r.inner;
             r.response.on_hover_text(t.tr("status.form_hover"));
         }
@@ -73,7 +78,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut App, opacity: f32) {
         }
         item(ui, &keys, c.dim);
     };
+    // On the settings the link would only close them, which Esc says.
+    let on_settings = app.screen == Screen::Settings;
     let right = |ui: &mut egui::Ui| {
+        if on_settings {
+            return;
+        }
         let r = ui.scope(|ui| link(ui, t.tr("status.settings")));
         to_settings = r.inner;
         if let Some(k) = app.keymap.hint(Act::Settings) {
