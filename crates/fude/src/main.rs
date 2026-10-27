@@ -811,7 +811,7 @@ impl App {
         // picks; a script tells nobody.
         if reached && self.script.is_none() && ctx.input(|i| i.viewport().focused) == Some(false) {
             let body = write::hit_words(&self.band, &self.table);
-            notify::tell(&self.prefs.notify, self.table.tr("write.hit_title"), &body);
+            notify::tell(&self.prefs.notify, self.table.tr("write.hit_title"), &body, self.table.tr("write.hit_open"));
         }
         let settings_key = self.keymap.hint(Act::Settings).unwrap_or_else(|| "—".to_owned());
         let view = write::View {
@@ -835,6 +835,9 @@ impl eframe::App for App {
             t.follow(&ctx);
         }
         self.script(&ctx);
+        // A click on a limit's notification only brings the window forward:
+        // the writing is the one place it leads to.
+        ito_prefs::take_clicks();
         self.follow_prefs(&ctx);
         self.follow_notes();
         self.follow_exports(ui.ctx());
@@ -1041,6 +1044,7 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             saved.put(cc);
             let mut prefs = Prefs::load(ito_common::base_dir());
+            ito_prefs::notify_window(&cc.egui_ctx);
             fonts::load_in_background(cc.egui_ctx.clone());
             prefs.watch(&cc.egui_ctx);
             prefs.apply_theme(&cc.egui_ctx);

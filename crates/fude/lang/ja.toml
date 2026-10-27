@@ -65,6 +65,7 @@ hit_chars = "{0} 字に達しました"
 hit_time = "{0} 分たちました"
 hit_join = "・"
 hit_title = "上限に届きました"
+hit_open = "開く"
 go_on = "このまま書き続けられます"
 
 [settings]

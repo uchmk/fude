@@ -13,9 +13,8 @@
   （[uchmk/ito#46](https://github.com/uchmk/ito/issues/46)、v0.119.2 `ef71a41`）。`notify.rs`。上限に届いたとき、窓が後ろにあれば知らせる。
 - [x] 設定の画面: `ito_prefs::show`（Language・CLOCK・Theme の共通のページ + キー）。手本は minato の `settings.rs`。
 - [x] 窓の場所を戻す: 雛形は `window::Saved` で戻し `Tracker::follow` で書く。終わるときに `Tracker::close`。
-- [ ] 通知を入れる: 設定の読み違い・keymap の警告はベルに出る（0.2.0）。上限の知らせはシステムの通知に出る（`NotifyCfg::tell`）。
-  残りは、押すと fude の窓が前に来るトースト（michi は `notify.rs` に `Notifier` と `Toast::open` の糸を自前で持つ）。fude には書かず ito に頼んだ
-  （[uchmk/ito#47](https://github.com/uchmk/ito/issues/47)）。
+- [x] 通知を入れる: 設定の読み違い・keymap の警告はベルに出る（0.2.0）。上限の知らせはシステムの通知に出る。押すと fude の窓が
+  前に来る（`NotifyCfg::tell_open`・`notify_window`、[uchmk/ito#47](https://github.com/uchmk/ito/issues/47)、v0.120.0 `20056d2`）。
 - [x] コマンドパレットの中身: 設定・キー一覧・不具合報告・倍率・終了（0.2.0）、清書・紙・縦横・コピー・新しく書く（0.4.0）、本棚・保存（0.5.0）、
   書き出し・印刷（0.8.0）、設定の「書く」「このノート」のページ（0.9.0）。
 - [x] 字体（日本語が出る字体を `egui` に足す）。手本は minato の `fonts.rs`。
@@ -51,8 +50,9 @@
 
 - [x] [uchmk/ito#43](https://github.com/uchmk/ito/issues/43) 区切りのボタン（seg） → v0.117.0。清書の道具の列（紙・向き・マス・1 行）を `ito_prefs::seg` に。
 - [x] [uchmk/ito#44](https://github.com/uchmk/ito/issues/44) 塗ったボタン（primary・danger） → v0.118.0 `ab21bf8`。清書の帯の「続きを書く」を `Tone::Primary` に。
-- [x] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → v0.116.0 `8eabb2a` に上げた（今は v0.119.3 `5ae5ca7`）。
+- [x] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → v0.116.0 `8eabb2a` に上げた（今は v0.120.0 `20056d2`）。
 - [x] [uchmk/ito#46](https://github.com/uchmk/ito/issues/46) 共通の `[notify]` の読み書きと送る所 → v0.119.2 `ef71a41`。設定の「通知」ページと、上限の知らせをシステムの通知にも。
+- [x] [uchmk/ito#47](https://github.com/uchmk/ito/issues/47) 押すと窓が前に来る通知 → v0.120.0 `20056d2`。上限の知らせに「開く」。
 
 ## 画面の確認（TESTING-CHECKS.md、2026-10-27）で見つけたもの
 

@@ -40,9 +40,11 @@ fn icon(side: u32) -> Vec<u8> {
     crate::icon::pixels(side)
 }
 
-/// Tell of a limit reached in every way `n` turns on for it.
-pub fn tell(n: &NotifyCfg, title: &str, body: &str) {
-    n.tell(&EVENTS, APP, icon, "limit", title, body);
+/// Tell of a limit reached in every way `n` turns on for it. A click on the
+/// system's notification (or its `open` button) brings the window forward;
+/// a newer limit's replaces the last.
+pub fn tell(n: &NotifyCfg, title: &str, body: &str, open: &str) {
+    n.tell_open(&EVENTS, APP, icon, "limit", title, body, "limit", open);
 }
 
 /// "Send a test", as the page sets things now: every way, or only the

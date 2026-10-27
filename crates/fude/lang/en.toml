@@ -66,6 +66,7 @@ hit_chars = "{0} letters reached"
 hit_time = "{0} minutes passed"
 hit_join = " · "
 hit_title = "A limit reached"
+hit_open = "Open"
 go_on = "You can keep writing"
 
 [settings]
