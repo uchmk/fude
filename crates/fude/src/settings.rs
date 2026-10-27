@@ -497,9 +497,13 @@ fn note_page(ui: &mut Ui, l: Look, t: &Table, c: Config, drafts: &mut Drafts, to
         let added = keyed_row(ui, l, "note.topics", tr("settings.topics"), tr("settings.topics_note"), |ui| {
             ito_prefs::field(ui, drafts, TOPIC_FIELD, "", tr("settings.topic_add"), 220.0)
         });
-        // The field empties for the next one.
+        // The field empties for the next one, and keeps the caret when Enter
+        // sent it (egui lets go of a field on Enter).
         if let Some(new) = added.map(|w| w.trim().to_owned()).filter(|w| !w.is_empty()) {
             drafts.remove(TOPIC_FIELD);
+            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                ui.memory_mut(|m| m.request_focus(ito_prefs::field_id(TOPIC_FIELD)));
+            }
             if !topics.contains(&new) {
                 let list: Vec<String> = topics.iter().cloned().chain([new]).collect();
                 asked.push(("note.topics", config::topics_value(&list)));
