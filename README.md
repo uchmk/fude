@@ -56,6 +56,9 @@ uchmk のアプリで、共通の部品（窓・テーマ・言語・キー・�
 `fude.exe` は窓のプログラムなので、PowerShell は終わりを待たない。`cargo build --release` で一緒にできる
 `fude-com.exe` を `fude.exe` の横に `fude.com` として置くと、`fude --version` などが端末に出る（kura の `kura.com` と同じ）。
 
+不具合を報告するときは `fude env` の出力を貼る。版・OS・設定と状態のフォルダー・ノートの場所・前の窓が
+描くのに使った GPU を出す（uchmk のアプリで共通の形。窓は開かない）。
+
 ## 確かめること
 
 人が見て確かめる行は [TESTING.md](TESTING.md)、残りの一覧は [TESTING-CHECKS.md](TESTING-CHECKS.md)。

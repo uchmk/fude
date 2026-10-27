@@ -13,6 +13,7 @@ mod band;
 mod clean;
 mod config;
 mod draw;
+mod envreport;
 mod export;
 mod fonts;
 mod help;
@@ -66,8 +67,10 @@ const STIR: f32 = 6.0;
 const USAGE: &str = "\
 fude — a one-line editor for writing
 
-usage: fude [--keys SCRIPT] [--version | --help]
+usage: fude [--keys SCRIPT] [env | --version | --help]
 
+  env            print what a bug report needs to know (the version, the
+                 folders and files, what the last window drew with)
   --keys SCRIPT  press these keys once the window is up, as kura's --keys
                  (`<C-,>`, `<F1>`, `<Wait:200>`, `<State:name>`, `<Quit>`);
                  FUDE_KEYS_DONE names the file that says how it ended
@@ -999,6 +1002,8 @@ fn bug_context(base: Option<&Path>, scale: f32) -> String {
 enum Cli {
     Version,
     Help,
+    /// The report for a bug, printed (`envreport`).
+    Env,
     /// Open the window, with a script to play into it.
     Open(Option<Vec<Step>>),
 }
@@ -1015,6 +1020,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Cli, String> {
             }
             Some("--version" | "-V") => return Ok(Cli::Version),
             Some("--help" | "-h") => return Ok(Cli::Help),
+            Some("env" | "--env") => return Ok(Cli::Env),
             _ => return Err(format!("unknown argument `{}`", a.to_string_lossy())),
         }
     }
@@ -1041,6 +1047,10 @@ fn main() -> eframe::Result {
         }
         Ok(Cli::Help) => {
             say(USAGE, false);
+            return Ok(());
+        }
+        Ok(Cli::Env) => {
+            ito_console::out(&envreport::text());
             return Ok(());
         }
         Ok(Cli::Open(script)) => script,
@@ -1077,6 +1087,18 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             opened.put(cc);
+            // What this run drew with, for `fude env`; written off the UI thread.
+            if script.is_none() {
+                let mut used = ito_common::runinfo::RunInfo::new(env!("CARGO_PKG_VERSION"));
+                if let Some(rs) = cc.wgpu_render_state.as_ref() {
+                    let info = rs.adapter.get_info();
+                    used.adapter = info.name;
+                    used.backend = format!("{:?}", info.backend);
+                    used.device = format!("{:?}", info.device_type);
+                }
+                used.ppp = cc.egui_ctx.pixels_per_point();
+                std::thread::spawn(move || ito_common::runinfo::save("fude", &used));
+            }
             let mut prefs = Prefs::load(ito_common::base_dir());
             ito_prefs::notify_window(&cc.egui_ctx);
             fonts::load_in_background(cc.egui_ctx.clone());
@@ -1121,6 +1143,7 @@ mod tests {
         assert_eq!(args(&[]), Ok(Cli::Open(None)));
         assert_eq!(args(&["--version"]), Ok(Cli::Version));
         assert_eq!(args(&["-h"]), Ok(Cli::Help));
+        assert_eq!(args(&["env"]), Ok(Cli::Env));
         assert!(matches!(args(&["--keys", "<C-,><Quit>"]), Ok(Cli::Open(Some(s))) if s.len() == 2));
         assert!(args(&["--keys"]).unwrap_err().contains("needs a script"));
         assert!(args(&["--frob"]).unwrap_err().contains("`--frob`"));
