@@ -4,7 +4,7 @@
 
 ## 1. 起動
 
-- [~] **1.1** 起動する → 1280x800 の窓が「fude」の題で開き、タスクバー（と Alt+Tab）に朱の枠と筆の一画のアイコン — *Run `fude` → A window of 1280x800 opens with the title "fude"; the taskbar (and `Alt+Tab`) show the icon, a vermilion square with a brush's stroke in it*
+- [x] **1.1** 起動する → 1280x800 の窓が「fude」の題で開き、タスクバー（と Alt+Tab）に朱の枠と筆の一画のアイコン — *Run `fude` → A window of 1280x800 opens with the title "fude"; the taskbar (and `Alt+Tab`) show the icon, a vermilion square with a brush's stroke in it*
 - [x] **1.2** 窓を動かし大きさを変えて閉じ、また起動する → 同じ場所と大きさで開く — *Move and resize the window, close it and start it again → The window comes back at the same place and size*
 - [x] **1.3** F12 → ブラウザーで不具合報告のフォームが開き、版と OS が入っている — *Press `F12` → The browser opens the repository's new issue form with the version and OS filled in*
 - [x] **1.4** `ドキュメント\fude` がない状態で起動 → `ドキュメント\fude\ノート\` ができ、何も聞かれずにすぐ打てる — *Start it with no `Documents\fude` folder → `Documents\fude\ノート\` is made and the band takes letters at once, with nothing to answer first*
@@ -13,11 +13,11 @@
 
 自動テスト済みなので下には出していない: 2.3, 2.4
 
-- [~] **2.1** IME で「きょうははれ」を打ち、変換して確定 → 変換中の字は帯の打つ所に出る。打つ所は動かず、字のほうが流れる — *Type `きょうははれ` with the IME on, convert it and confirm → The letters being converted stand at the input point on the band; the input point stays where it is and the letters flow away from it*
+- [x] **2.1** IME で「きょうははれ」を打ち、変換して確定 → 変換中の字は帯の打つ所に出る。打つ所は動かず、字のほうが流れる — *Type `きょうははれ` with the IME on, convert it and confirm → The letters being converted stand at the input point on the band; the input point stays where it is and the letters flow away from it*
 - [x] **2.2** ← を 2 回、X を打ち、Home と End → 1 字ずつ戻り、そこに X が入る。Home・End で端へ — *Press `Left` twice, type `X`, then `Home` and `End` → The input point goes back by a letter each time, `X` goes in there, and `Home` / `End` take it to the ends*
 - [x] **2.5** タブと空の行 3 つを含む文を貼り付ける → タブは空白に、空の行は段落の区切り 1 つに — *Paste text with a tab and three blank lines in it → The tab becomes a space and the blank lines one paragraph break*
 - [x] **2.6** 設定の「書く」で向きを縦に → 帯が縦になり、↑ ↓ で動く — *Settings, Writing: set the direction to vertical → The band stands upright and `Up` / `Down` move the input point*
-- [~] **2.7** マウスに触れずにしばらく打ち、マウスを動かす → 打っている間はタイトルバーが薄くなり、動かすと戻る — *Type for a while without touching the mouse, then move it → The title bar fades while typing and comes back when the pointer moves*
+- [x] **2.7** マウスに触れずにしばらく打ち、マウスを動かす → 打っている間はタイトルバーが薄くなり、動かすと戻る — *Type for a while without touching the mouse, then move it → The title bar fades while typing and comes back when the pointer moves*
 - [x] **2.8** 何字か打って窓を閉じ、また起動する → 打った字が戻り、入力点はその後ろ — *Type a few letters, close the window and start it again → The letters come back and the input point is after them*
 - [x] **2.9** 設定の「このノート」で「消せないモード」をオンにし、Backspace・Delete・← → どれも効かず、打つのは続けられる — *Settings, This notebook: turn on "no erasing", then press `Backspace`, `Delete` and `Left` → None of them does anything, and typing still goes on*
 
@@ -30,12 +30,12 @@
 
 ## 4. 清書
 
-- [~] **4.1** 2 段落書いて Esc → 20×20 の原稿用紙・縦書き・明朝の清書。柱・魚尾・ページの番号 — *Write two paragraphs and press `Esc` → The clean copy shows them on 20×20 manuscript paper written vertically in mincho, with the column, the fishtail and the page number*
-- [~] **4.2** 「PCー」を書き、道具の列で方眼・縦書き → 括弧と長音は縦の形、P と C は 1 マスに 1 字 — *Write `「PCー」`, then pick graph paper, vertical, in the tools row → The brackets and the long mark take their upright forms, and `P` and `C` go one to a square*
-- [~] **4.3** 「今」「「」「A」で始まる段落を書く → 字下げは「今」の段落だけ — *Write paragraphs beginning `今`, `「` and `A` → Only the one beginning `今` is indented by one square*
-- [~] **4.4** 行の頭に「。」が来るように書く → 前の行の最後のマスに入るか、「このノート」のとおりマスの外にぶら下がる。「。」」は 1 マス — *Write a line that fills the paper's line so that `。` falls at the head of the next → `。` goes in the last square of the line before, or hangs below the paper as the This notebook page says; `。」` share one square*
-- [~] **4.5** `｜漢字《かんじ》` と `《《強調》》` → 「漢字」の横に小さくルビ、「強調」に傍点。記号は出ない — *Write `｜漢字《かんじ》` and `《《強調》》` → The reading sits small beside `漢字`, and dots beside `強調`; none of the marks shows*
-- [~] **4.6** 道具の列で紙・向き・マスを変える → そのたびにすぐ描き直す — *Change the paper, the direction and the squares in the tools row → The clean copy is drawn again at once in each*
+- [x] **4.1** 2 段落書いて Esc → 20×20 の原稿用紙・縦書き・明朝の清書。柱・魚尾・ページの番号 — *Write two paragraphs and press `Esc` → The clean copy shows them on 20×20 manuscript paper written vertically in mincho, with the column, the fishtail and the page number*
+- [x] **4.2** 「PCー」を書き、道具の列で方眼・縦書き → 括弧と長音は縦の形、P と C は 1 マスに 1 字 — *Write `「PCー」`, then pick graph paper, vertical, in the tools row → The brackets and the long mark take their upright forms, and `P` and `C` go one to a square*
+- [x] **4.3** 「今」「「」「A」で始まる段落を書く → 字下げは「今」の段落だけ — *Write paragraphs beginning `今`, `「` and `A` → Only the one beginning `今` is indented by one square*
+- [x] **4.4** 行の頭に「。」が来るように書く → 前の行の最後のマスに入るか、「このノート」のとおりマスの外にぶら下がる。「。」」は 1 マス — *Write a line that fills the paper's line so that `。` falls at the head of the next → `。` goes in the last square of the line before, or hangs below the paper as the This notebook page says; `。」` share one square*
+- [x] **4.5** `｜漢字《かんじ》` と `《《強調》》` → 「漢字」の横に小さくルビ、「強調」に傍点。記号は出ない — *Write `｜漢字《かんじ》` and `《《強調》》` → The reading sits small beside `漢字`, and dots beside `強調`; none of the marks shows*
+- [x] **4.6** 道具の列で紙・向き・マスを変える → そのたびにすぐ描き直す — *Change the paper, the direction and the squares in the tools row → The clean copy is drawn again at once in each*
 - [x] **4.7** Ctrl+C してメモ帳に貼る → 字下げした段落の頭は全角の空白。道具の列にコピーした字数 — *Press `Ctrl+C` and paste into Notepad → The text comes with a full-width space at the head of each indented paragraph, and the tools row says how many letters were copied*
 - [x] **4.8** 清書の字をクリック → 書く画面に戻り、入力点はその字 — *Click a letter in the clean copy → The writing comes back with the input point at that letter*
 - [x] **4.9** 清書の上で字を打つ → 書く画面に戻り、その字が入力点に入る — *On the clean copy, type a letter → The writing comes back with that letter added at the input point*
@@ -88,6 +88,6 @@
 
 ## 10. 書き出しと印刷
 
-- [~] **10.1** 清書で Ctrl+E、Enter → ノートのフォルダーの `export\<篇>.pdf` に書いてフォルダーを開く。A4・明朝で、画面の清書と同じ — *On the clean copy, press `Ctrl+E`, then `Enter` → `export\<piece>.pdf` is written in the notebook's folder and the folder opens; the PDF shows the clean copy on A4 in mincho, as the window shows it*
+- [x] **10.1** 清書で Ctrl+E、Enter → ノートのフォルダーの `export\<篇>.pdf` に書いてフォルダーを開く。A4・明朝で、画面の清書と同じ — *On the clean copy, press `Ctrl+E`, then `Enter` → `export\<piece>.pdf` is written in the notebook's folder and the folder opens; the PDF shows the clean copy on A4 in mincho, as the window shows it*
 - [x] **10.2** パレットで「書き出し: PNG（ノート 1 冊）」、次に短くした篇を同じく → 篇ごとにページの PNG。前の長い篇の余ったページは残らない — *Pick "Export: PNG (the whole notebook)" in the palette, then export a shorter copy the same way → A PNG is written to each page of every piece; no page of the longer copy is left behind*
 - [~] **10.3** Ctrl+P、Enter → 篇が印刷に回り、道具の列がそう言う。PDF を開くアプリに印刷を頼めない（Edge・Chrome）ときは、そのアプリで PDF が開き、道具の列が「そこから印刷して」と言う — *Press `Ctrl+P`, then `Enter` → The piece goes to the printer, and the tools row says so; where the program that opens PDFs cannot be told to print (Edge, Chrome), the PDF opens in it instead and the tools row says to print from there*

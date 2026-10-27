@@ -42,7 +42,7 @@
 - [x] [uchmk/ito#38](https://github.com/uchmk/ito/issues/38) 明朝の字体 `ito_common::fonts::MINCHO` → 0.4.0 清書の既定を明朝に。
 - [x] [uchmk/ito#39](https://github.com/uchmk/ito/issues/39) `ito_common::documents_dir()` → 0.5.0 ノートの置き場の既定 `ドキュメント\fude`。
 - [x] [uchmk/ito#40](https://github.com/uchmk/ito/issues/40) `ito-ime` と keyscript の `<Preedit>` `<Commit>` → 0.3.0 書く帯で日本語を打つ。
-  縦の帯の候補窓の位置は実機の IME で確かめる。
+  縦の帯の候補窓の位置は実機の IME で確かめた（2026-10-27、Copilot Keyboard）。横も縦も打つ所のすぐ下に出る。
 - [x] [uchmk/ito#41](https://github.com/uchmk/ito/issues/41) 短い音 → 0.7.0 `sound.rs`（打つ音）と設定の行。
 - [x] [uchmk/ito#42](https://github.com/uchmk/ito/issues/42) `ito-export` → 0.8.0 `svg.rs`・`export.rs`（PNG・PDF・印刷、1 篇・1 冊）。
 
