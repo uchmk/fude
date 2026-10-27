@@ -108,4 +108,4 @@ writes what is left to `TESTING-CHECKS.md`.
 | --- | --- | --- |
 | 10.1 | On the clean copy, press `Ctrl+E`, then `Enter` | `export\<piece>.pdf` is written in the notebook's folder and the folder opens; the PDF shows the clean copy on A4 in mincho, as the window shows it |
 | 10.2 | Pick "Export: PNG (the whole notebook)" in the palette, then export a shorter copy the same way | A PNG is written to each page of every piece; no page of the longer copy is left behind |
-| 10.3 | Press `Ctrl+P`, then `Enter` | The piece goes to the printer, and the tools row says so |
+| 10.3 | Press `Ctrl+P`, then `Enter` | The piece goes to the printer, and the tools row says so; where the program that opens PDFs cannot be told to print (Edge, Chrome), the PDF opens in it instead and the tools row says to print from there |

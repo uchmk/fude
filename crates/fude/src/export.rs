@@ -51,7 +51,13 @@ pub struct Job {
 /// What came of a [`Job`].
 #[derive(Debug)]
 pub enum Done {
-    Wrote { what: What, files: Vec<PathBuf> },
+    Wrote {
+        what: What,
+        files: Vec<PathBuf>,
+    },
+    /// The PDF to print was opened in its viewer instead, which has no way
+    /// to be told to print (Edge and Chrome): the person prints from there.
+    Opened(PathBuf),
     Failed(String),
 }
 
@@ -71,8 +77,8 @@ impl Worker {
             .spawn(move || {
                 let fonts = ito_export::Fonts::system();
                 while let Ok(job) = jobs.recv() {
-                    let done = match make(&job, &fonts) {
-                        Ok(files) => Done::Wrote { what: job.what, files },
+                    let done = match make(&job, &fonts).and_then(|files| hand(job.what, files)) {
+                        Ok(done) => done,
                         Err(e) => Done::Failed(e),
                     };
                     let _ = back.send(done);
@@ -126,11 +132,19 @@ fn make(job: &Job, fonts: &ito_export::Fonts) -> Result<Vec<PathBuf>, String> {
         What::Pdf | What::Print => {
             let out = job.dir.join(format!("{}.pdf", job.name));
             ito_export::pdf(&job.pages, fonts, &out)?;
-            if job.what == What::Print {
-                ito_export::print(&out)?;
-            }
             Ok(vec![out])
         }
+    }
+}
+
+/// What came of `files`, made as `what`: a print's PDF goes to the printer.
+fn hand(what: What, files: Vec<PathBuf>) -> Result<Done, String> {
+    match files.first() {
+        Some(pdf) if what == What::Print => match ito_export::print(pdf)? {
+            ito_export::Printed::Sent => Ok(Done::Wrote { what, files }),
+            ito_export::Printed::Opened => Ok(Done::Opened(pdf.clone())),
+        },
+        _ => Ok(Done::Wrote { what, files }),
     }
 }
 
@@ -204,6 +218,10 @@ impl App {
                         self.say(Kind::Warn, &e);
                     }
                 }
+                Done::Opened(pdf) => {
+                    let words = t.trf("export.opened", &[&shown(&pdf)]);
+                    self.tell(Kind::Info, words, time);
+                }
                 Done::Failed(e) => {
                     let words = t.trf("export.failed", &[&e]);
                     self.say(Kind::Err, &words);
@@ -257,6 +275,14 @@ mod tests {
         assert!(std::fs::read(&pdf[0]).unwrap().starts_with(b"%PDF"));
         assert_eq!(shown(&pdf[0]), Path::new("export").join("2026-10-27_0930.pdf").display().to_string());
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn only_a_print_goes_to_the_printer() {
+        let missing = std::env::temp_dir().join(format!("fude-export-missing-{}.pdf", std::process::id()));
+        assert!(matches!(hand(What::Pdf, vec![missing.clone()]), Ok(Done::Wrote { what: What::Pdf, .. })));
+        assert!(matches!(hand(What::Print, Vec::new()), Ok(Done::Wrote { what: What::Print, .. })));
+        assert!(hand(What::Print, vec![missing]).unwrap_err().contains("no such file"));
     }
 
     #[test]

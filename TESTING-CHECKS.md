@@ -88,4 +88,4 @@
 
 - [~] **10.1** 清書で Ctrl+E、Enter → ノートのフォルダーの `export\<篇>.pdf` に書いてフォルダーを開く。A4・明朝で、画面の清書と同じ — *On the clean copy, press `Ctrl+E`, then `Enter` → `export\<piece>.pdf` is written in the notebook's folder and the folder opens; the PDF shows the clean copy on A4 in mincho, as the window shows it*
 - [x] **10.2** パレットで「書き出し: PNG（ノート 1 冊）」、次に短くした篇を同じく → 篇ごとにページの PNG。前の長い篇の余ったページは残らない — *Pick "Export: PNG (the whole notebook)" in the palette, then export a shorter copy the same way → A PNG is written to each page of every piece; no page of the longer copy is left behind*
-- [ ] **10.3** Ctrl+P、Enter → 篇が印刷に回り、道具の列がそう言う — *Press `Ctrl+P`, then `Enter` → The piece goes to the printer, and the tools row says so*
+- [~] **10.3** Ctrl+P、Enter → 篇が印刷に回り、道具の列がそう言う。PDF を開くアプリに印刷を頼めない（Edge・Chrome）ときは、そのアプリで PDF が開き、道具の列が「そこから印刷して」と言う — *Press `Ctrl+P`, then `Enter` → The piece goes to the printer, and the tools row says so; where the program that opens PDFs cannot be told to print (Edge, Chrome), the PDF opens in it instead and the tools row says to print from there*
