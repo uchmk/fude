@@ -2,6 +2,14 @@
 
 形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/)、日付は JST。
 
+## [Unreleased]
+
+### 変更
+
+- ito を `8eabb2a`（v0.116.0）に上げた（`make-testcheck` の雛形が `crates` を探す、`--check` は 0 行で落ちる）。
+- TESTING.md の 4 行の文言を、実機で見たとおりに直した（1.1 アイコンはタスクバー、3.2 最初の字まで時計が動かない、
+  4.9 打った字は入力点に入る、9.3 の例は `[[app.prepend_keymap]]`）。`TESTING-CHECKS.md` に画面で確かめた印。
+
 ## [0.9.0] - 2026-10-27
 
 ### 追加

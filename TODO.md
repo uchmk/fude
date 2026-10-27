@@ -51,5 +51,14 @@
 
 - [ ] [uchmk/ito#43](https://github.com/uchmk/ito/issues/43) 区切りのボタン（seg） → 清書の道具の列（紙・向き・マス・1 行）。今は `ito_prefs::select`。
 - [ ] [uchmk/ito#44](https://github.com/uchmk/ito/issues/44) 塗ったボタン（primary・danger） → 清書の帯の「続きを書く」。今は `ito_prefs::button`。
-- [ ] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → fude の側は直してある（0.8.0・0.9.0）。
+- [x] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → v0.116.0 `8eabb2a` に上げた。
 - [ ] [uchmk/ito#46](https://github.com/uchmk/ito/issues/46) 共通の `[notify]` の読み書きと送る所 → 設定の「通知」ページと、上限の知らせをシステムの通知にも。
+
+## 画面の確認（TESTING-CHECKS.md、2026-10-27）で見つけたもの
+
+- [ ] 設定でドロップダウンを開いたまま Esc → ドロップダウンだけでなく設定の画面まで閉じる。
+- [ ] 清書の帯に「続きを書く」と Esc の案内が 2 つ並ぶ。長いコピーの知らせが折り返す。
+- [ ] キー一覧の本棚の組で、N が `n` と出る（keymap の書き方のまま）。
+- [ ] F12 の報告の context が「Config: defaults only」だけ（`ito_bugreport` に設定のパスを渡していない）。
+- [ ] ito に知らせた: ベルを押しても通知の一覧が開かない（`ito-notices` の `clicked_elsewhere` が開いたその枠で閉じる）。
+  設定の「お題を足す」の欄が Enter のあとフォーカスを失う（`ito_prefs::field`）。
