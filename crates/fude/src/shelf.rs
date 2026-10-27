@@ -205,7 +205,7 @@ impl App {
         }
         let i = self.ensure_note();
         let (n, on_disk) = (&self.notes[i], self.root.is_some());
-        let taken = |s: &str| n.piece(s).is_some() || (on_disk && n.dir.join(format!("{s}.txt")).exists());
+        let taken = |s: &str| n.piece(s).is_some() || (on_disk && notebook::piece_file(&n.dir, s).exists());
         self.piece = Some(notebook::stem_at(chrono::Local::now().naive_local(), taken));
     }
 

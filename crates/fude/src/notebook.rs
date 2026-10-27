@@ -365,13 +365,26 @@ fn reserved(name: &str) -> bool {
             && head.as_bytes()[3] != b'0')
 }
 
+/// The file of the piece `stem` in `dir`: `stem.txt`, or one put there by
+/// hand with `.txt` in another case, which [`read_note`] reads as a piece too
+/// and a file system that minds the case does not find as `stem.txt`.
+pub fn piece_file(dir: &Path, stem: &str) -> PathBuf {
+    let path = dir.join(format!("{stem}.txt"));
+    if path.exists() {
+        return path;
+    }
+    let same =
+        |p: &Path| p.file_stem().is_some_and(|s| s == stem) && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("txt")) && p.is_file();
+    fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).find(|p| same(p)).unwrap_or(path)
+}
+
 /// Put `text` into the piece `stem` in `dir` (the folder made if need be),
 /// written only when it differs from what is there; nothing written for an
 /// empty piece that has no file yet. `rec` goes into `fude.toml` when it
 /// changes it, its days counted again from what is on the disk with what the
 /// piece grew by going to `today`. Whether the piece's file was written.
 pub fn bind(dir: &Path, stem: &str, text: &str, rec: Option<&Record>, today: NaiveDate) -> Result<bool, String> {
-    let path = dir.join(format!("{stem}.txt"));
+    let path = piece_file(dir, stem);
     let had = match fs::read(&path) {
         Ok(b) => Some(normalize(&String::from_utf8_lossy(&b))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -650,6 +663,8 @@ mod tests {
         fs::write(dir.join("notes.md"), "not a piece").unwrap();
         // Hand-written CRLF read as it is: binding the same text leaves the file alone.
         assert_eq!(bind(&dir, "2026-10-26_2200", "手で\n置いた", None, d), Ok(false));
+        // Changed, it is written into that file, not a new `.txt` beside it.
+        assert_eq!(bind(&dir, "2026-10-26_2200", "手で\n置いた。", None, d), Ok(true));
         assert_eq!(bind(&dir, "my memo", "メモ。", Some(&timed(1)), d), Ok(true));
         let toml = fs::read_to_string(dir.join(FILE)).unwrap();
         assert!(!toml.contains("memo") && toml.contains("[pieces.2026-10-27_0905]"), "{toml}");
@@ -664,7 +679,7 @@ mod tests {
         assert_eq!(n.pieces[1].ms(), Some(70_000));
         assert_eq!(n.pieces[1].chars, 6);
         assert_eq!(n.pieces[1].days(), [Day { day: d, chars: 6, ms: 70_000 }]);
-        assert_eq!(n.pieces[0].text, "手で\n置いた");
+        assert_eq!(n.pieces[0].text, "手で\n置いた。");
         assert_eq!(n.pieces[0].ms(), None);
         assert_eq!(n.pieces[2].text, "メモ。");
         // Emptied: the file stays, empty.
