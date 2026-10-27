@@ -146,13 +146,15 @@ impl App {
                     self.copy(ctx, time);
                 }
                 let newer = if self.clean.sheet.dir == Dir::Vertical { -1 } else { 1 };
+                // A part of the tools row with the keys takes the arrows itself.
+                let turn = ctx.memory(|m| m.focused().is_none());
                 if key(Modifiers::COMMAND, Key::N) {
                     self.new_piece(time);
                 } else if key(Modifiers::COMMAND, Key::S) {
                     self.save_piece(time);
-                } else if key(Modifiers::NONE, Key::ArrowRight) {
+                } else if turn && key(Modifiers::NONE, Key::ArrowRight) {
                     self.flip_piece(newer, time);
-                } else if key(Modifiers::NONE, Key::ArrowLeft) {
+                } else if turn && key(Modifiers::NONE, Key::ArrowLeft) {
                     self.flip_piece(-newer, time);
                 } else if key(Modifiers::NONE, Key::Escape) || key(Modifiers::NONE, Key::Enter) {
                     self.write_on();
@@ -201,9 +203,7 @@ pub fn show(ui: &mut Ui, app: &mut App, under: bool) {
             Go::New => app.new_piece(time),
         }
     }
-    if tools(ui, app, l, time) {
-        app.write_on();
-    }
+    tools(ui, app, l, time);
     // Flipping loads a piece onto the band, so the band's pace is the one
     // of the piece shown.
     let pace = if config.pace { Pace::new(&text, &app.band.pace(Instant::now())) } else { None };
@@ -293,7 +293,8 @@ fn banner(ui: &mut Ui, app: &App, l: Look) -> Option<Go> {
             if ito_prefs::button(ui, l, &tr("clean.anew")) {
                 go = Some(Go::New);
             }
-            if keycap(ui, l, "Esc") | ito_prefs::button(ui, l, &tr("clean.go_on")) {
+            let go_on = ito_prefs::button_with(ui, l, &tr("clean.go_on"), ito_prefs::Tone::Primary).clicked();
+            if keycap(ui, l, "Esc") | go_on {
                 go = Some(Go::WriteOn);
             }
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
@@ -339,21 +340,24 @@ fn keycap(ui: &mut Ui, l: Look, words: &str) -> bool {
 }
 
 /// The row under the banner that changes the paper for this clean copy
-/// (the settings stay as they are), with the counts and the copy button:
-/// whether "write on" was clicked.
-fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) -> bool {
+/// (the settings stay as they are), with the counts and the copy and export
+/// buttons. Writing on is the banner's.
+fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) {
     let ctx = ui.ctx().clone();
     let c = l.c;
     let t = &app.table;
     let tr = |k: &'static str| t.tr(k).to_owned();
     let sheet = app.clean.sheet;
     let mut to = sheet;
-    let (mut copy, mut export, mut write_on) = (false, false, false);
+    let (mut copy, mut export) = (false, false);
     let frame = egui::Frame::NONE.fill(c.side).inner_margin(egui::Margin::symmetric(16, 8));
     egui::Panel::top("fude-clean-tools").frame(frame).show_separator_line(false).show(ui, |ui| {
         let r = ui.max_rect();
         ui.painter().hline(r.x_range().expand(16.0), r.bottom() + 7.5, Stroke::new(1.0, c.border));
         ui.horizontal_wrapped(|ui| {
+            // The row is as high as its buttons from the start, so the words
+            // before the first switch are centred with the rest.
+            ui.set_row_height(ito_theme::zoomed(&ctx, 30.0));
             ui.spacing_mut().item_spacing.x = 8.0;
             let label = |ui: &mut Ui, k: &'static str| ito_prefs::status(ui, t.tr(k), c.dim);
             label(ui, "clean.note");
@@ -364,12 +368,12 @@ fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) -> bool {
                 (Paper::Plain, tr("clean.plain")),
             ];
             let papers: Vec<(Paper, &str)> = papers.iter().map(|(p, w)| (*p, w.as_str())).collect();
-            if let Some(p) = ito_prefs::select(ui, "clean-paper", sheet.paper, &papers) {
+            if let Some(p) = ito_prefs::seg(ui, l, "clean-paper", sheet.paper, &papers) {
                 to.paper = p;
             }
             let dirs = [(Dir::Vertical, tr("clean.vertical")), (Dir::Horizontal, tr("clean.horizontal"))];
             let dirs: Vec<(Dir, &str)> = dirs.iter().map(|(d, w)| (*d, w.as_str())).collect();
-            if let Some(d) = ito_prefs::select(ui, "clean-dir", sheet.dir, &dirs) {
+            if let Some(d) = ito_prefs::seg(ui, l, "clean-dir", sheet.dir, &dirs) {
                 to.dir = d;
             }
             if sheet.paper == Paper::Genko {
@@ -381,7 +385,7 @@ fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) -> bool {
                 }
                 let names: Vec<String> = grids.iter().map(|(c, r)| format!("{c}×{r}")).collect();
                 let grids: Vec<((u32, u32), &str)> = grids.iter().zip(&names).map(|(g, n)| (*g, n.as_str())).collect();
-                if let Some((c, r)) = ito_prefs::select(ui, "clean-grid", own, &grids) {
+                if let Some((c, r)) = ito_prefs::seg(ui, l, "clean-grid", own, &grids) {
                     (to.cols, to.rows) = (c, r);
                 }
             } else {
@@ -394,7 +398,7 @@ fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) -> bool {
                 }
                 let names: Vec<String> = wraps.iter().map(|w| if *w == 0 { tr("clean.auto") } else { w.to_string() }).collect();
                 let wraps: Vec<(u32, &str)> = wraps.iter().zip(&names).map(|(w, n)| (*w, n.as_str())).collect();
-                if let Some(w) = ito_prefs::select(ui, "clean-wrap", own, &wraps) {
+                if let Some(w) = ito_prefs::seg(ui, l, "clean-wrap", own, &wraps) {
                     to.wrap = w;
                 }
             }
@@ -410,7 +414,6 @@ fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) -> bool {
             copy = keycap(ui, l, "Ctrl+C") | ito_prefs::button(ui, l, &tr("clean.copy"));
             let key = app.keymap.hint(Act::Export);
             export = key.is_some_and(|k| keycap(ui, l, &k)) | ito_prefs::button(ui, l, &tr("clean.export"));
-            write_on = keycap(ui, l, "Esc") | ito_prefs::button(ui, l, &tr("clean.go_on"));
         });
     });
     app.clean.set_sheet(to);
@@ -420,7 +423,6 @@ fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) -> bool {
     if export {
         app.choose_export(false);
     }
-    write_on
 }
 
 /// The counts after the paper: "412 字 · 3:05 · 原稿用紙 2 枚（21 行）".
