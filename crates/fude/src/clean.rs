@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use egui::text::{LayoutJob, TextFormat};
 use egui::{pos2, vec2, Align, Event, FontId, Key, Layout, Modifiers, Sense, Stroke, Ui};
+use ito_notices::Kind;
 use ito_prefs::Look;
 
 use crate::band::{self, Band, Hit};
@@ -35,9 +36,9 @@ pub struct Clean {
     tweaked: bool,
     /// The next draw scrolls to where the text begins.
     fresh: bool,
-    /// What the tools row says in place of the counts, and until when (in
-    /// egui's time).
-    pub said: Option<(String, f64)>,
+    /// What the tools row says in place of the counts, in its kind's colour,
+    /// and until when (in egui's time).
+    pub said: Option<(Kind, String, f64)>,
     /// The counts the last draw came to.
     last: Drawn,
     /// The settings the paper was chosen from.
@@ -62,6 +63,11 @@ impl Clean {
         if sheet != self.sheet {
             (self.sheet, self.tweaked, self.fresh) = (sheet, true, true);
         }
+    }
+
+    /// The tools row says `words` for [`SAID`] seconds from `time`.
+    pub fn say(&mut self, kind: Kind, words: String, time: f64) {
+        self.said = Some((kind, words, time + SAID));
     }
 
     /// The paper `text` is on when shown, or would open on.
@@ -99,19 +105,19 @@ impl App {
     pub fn copy(&mut self, ctx: &egui::Context, time: f64) {
         let text = self.band.text();
         let t = &self.table;
-        let words = if text.is_empty() {
-            t.tr("clean.copy_empty").to_owned()
+        let (kind, words) = if text.is_empty() {
+            (Kind::Info, t.tr("clean.copy_empty").to_owned())
         } else {
             let indent = self.prefs.config.indent;
             ctx.copy_text(layout::plain_text(&text, indent));
             let n = layout::count(&text).to_string();
             if indent {
-                t.trf("clean.copied", &[&n])
+                (Kind::Ok, t.trf("clean.copied", &[&n]))
             } else {
-                t.trf("clean.copied_plain", &[&n])
+                (Kind::Ok, t.trf("clean.copied_plain", &[&n]))
             }
         };
-        self.clean.said = Some((words, time + SAID));
+        self.clean.say(kind, words, time);
     }
 
     /// The keys of the clean copy, read before anything else sees them. On
@@ -402,11 +408,11 @@ fn tools(ui: &mut Ui, app: &mut App, l: Look, time: f64) {
                     to.wrap = w;
                 }
             }
-            let said = app.clean.said.as_ref().filter(|(_, until)| time < *until);
+            let said = app.clean.said.as_ref().filter(|(_, _, until)| time < *until);
             let (words, color) = match said {
-                Some((w, until)) => {
+                Some((kind, w, until)) => {
                     ctx.request_repaint_after_secs((until - time) as f32);
-                    (w.clone(), c.done)
+                    (w.clone(), kind.color())
                 }
                 None => (stats(app, &sheet), c.dim),
             };

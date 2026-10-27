@@ -23,10 +23,10 @@
 
 ## 3. 上限
 
-- [ ] **3.1** 「このノート」で字数の上限を 10 にして 12 字打つ → 10 字目で帯が上限を知らせ、鈴が 1 回鳴る。画面は変わらず、11・12 字目も入る — *Settings, This notebook: set the letter limit to 10, then type 12 letters → At the 10th the band says the limit is reached, a small bell rings once, and the screen stays as it is; the 11th and 12th go in*
+- [x] **3.1** 「このノート」で字数の上限を 10 にして 12 字打つ → 10 字目で帯が上限を知らせ、鈴が 1 回鳴る。画面は変わらず、11・12 字目も入る — *Settings, This notebook: set the letter limit to 10, then type 12 letters → At the 10th the band says the limit is reached, a small bell rings once, and the screen stays as it is; the 11th and 12th go in*
 - [x] **3.2** 時間の上限を 1 分、時計は最初の 1 字から。待ってから打つ → 最初の字までは時計が動かず、その 1 分後に帯が知らせる — *Set a time limit of 1 minute, with the clock starting at the first letter; wait, then type → The clock does not run until the first letter, and the band tells of the limit a minute after it*
 - [x] **3.3** 上限を過ぎてから Esc、Enter → 続きを書ける。上限は「書く」ページのとおりに上がるか外れる — *Past a limit, press `Esc`, then `Enter` → The writing goes on, and the limit is raised or lifted as the Writing page says*
-- [ ] **3.4** 時間の上限を 1 分にして 1 字打ち、ほかの窓をクリックして待つ → 1 分たつと fude のアイコンのシステムの通知が上限を知らせる。fude が前にあるときは出ない — *Set a time limit of 1 minute, type a letter, then click another window and wait → When the minute is up, a system notification with fude's icon says the limit is reached; with fude in front, there is none*
+- [x] **3.4** 時間の上限を 1 分にして 1 字打ち、ほかの窓をクリックして待つ → 1 分たつと fude のアイコンのシステムの通知が上限を知らせる。fude が前にあるときは出ない — *Set a time limit of 1 minute, type a letter, then click another window and wait → When the minute is up, a system notification with fude's icon says the limit is reached; with fude in front, there is none*
 
 ## 4. 清書
 
@@ -63,10 +63,10 @@
 
 ## 7. 音
 
-- [ ] **7.1** 「書く」でタイプライターを選び、打つ・消す・Enter・矢印 → 字と消すたびに音、Enter は重い音、矢印は鳴らない。選んだときに 1 回鳴る — *Settings, Writing: pick the typewriter, then type, erase, press `Enter` and the arrows → A key sound for each letter and each erasing, a heavier one for `Enter`, and none for the arrows; picking it plays it once*
-- [ ] **7.2** 鉛筆を選んで速く打つ → 柔らかい音が 1 字ずつ。続けて打っても 1 つの音にまとまらない — *Pick the pencil, then type fast → A softer sound for each letter, and a run of keys does not run into one sound*
-- [ ] **7.3** 音の大きさを 0 にして戻す → 鳴らなくなり、また鳴る — *Turn the volume down to 0, then up → The sounds go quiet and come back*
-- [ ] **7.4** 最後の音から 1 分おく → 音の出口を閉じる（音量ミキサーから fude が消える） — *Leave the window a minute after the last sound → The sound device is let go (the volume mixer no longer lists fude)*
+- [~] **7.1** 「書く」でタイプライターを選び、打つ・消す・Enter・矢印 → 字と消すたびに音、Enter は重い音、矢印は鳴らない。選んだときに 1 回鳴る — *Settings, Writing: pick the typewriter, then type, erase, press `Enter` and the arrows → A key sound for each letter and each erasing, a heavier one for `Enter`, and none for the arrows; picking it plays it once*
+- [~] **7.2** 鉛筆を選んで速く打つ → 柔らかい音が 1 字ずつ。続けて打っても 1 つの音にまとまらない — *Pick the pencil, then type fast → A softer sound for each letter, and a run of keys does not run into one sound*
+- [~] **7.3** 音の大きさを 0 にして戻す → 鳴らなくなり、また鳴る — *Turn the volume down to 0, then up → The sounds go quiet and come back*
+- [x] **7.4** 最後の音から 1 分おく → 音を出すのをやめる（音量ミキサーには閉じるまで fude が残るが、目盛りは動かない） — *Leave the window a minute after the last sound → The sound stops going out: the volume mixer still lists fude until it closes, but its meter stays still*
 
 ## 8. 設定
 

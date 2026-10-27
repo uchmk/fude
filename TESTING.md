@@ -80,7 +80,7 @@ writes what is left to `TESTING-CHECKS.md`.
 | 7.1 | Settings, Writing: pick the typewriter, then type, erase, press `Enter` and the arrows | A key sound for each letter and each erasing, a heavier one for `Enter`, and none for the arrows; picking it plays it once |
 | 7.2 | Pick the pencil, then type fast | A softer sound for each letter, and a run of keys does not run into one sound |
 | 7.3 | Turn the volume down to 0, then up | The sounds go quiet and come back |
-| 7.4 | Leave the window a minute after the last sound | The sound device is let go (the volume mixer no longer lists fude) |
+| 7.4 | Leave the window a minute after the last sound | The sound stops going out: the volume mixer still lists fude until it closes, but its meter stays still |
 
 ## 8. Settings
 

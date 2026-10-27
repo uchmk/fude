@@ -1287,7 +1287,7 @@ mod tests {
         frame(&ctx, &mut a, key(egui::Key::Enter, none));
         assert!(a.palette.is_none());
         let pdf = a.notes[0].dir.join(export::FOLDER).join(format!("{stem}.pdf"));
-        let said = |a: &App| a.clean.said.as_ref().map(|s| s.0.clone()).unwrap_or_default();
+        let said = |a: &App| a.clean.said.as_ref().map(|s| s.1.clone()).unwrap_or_default();
         let wrote = a.table.trf("export.pdf", &[&Path::new(export::FOLDER).join(format!("{stem}.pdf")).display().to_string()]);
         for _ in 0..600 {
             if said(&a) == wrote {
@@ -1297,6 +1297,7 @@ mod tests {
             frame(&ctx, &mut a, Vec::new());
         }
         assert_eq!(said(&a), wrote);
+        assert_eq!(a.clean.said.as_ref().map(|s| s.0), Some(ito_notices::Kind::Ok), "what was written is said as done");
         assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF"));
         if let Some(w) = &mut a.export {
             w.finish();

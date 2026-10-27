@@ -10,7 +10,7 @@ use std::thread::JoinHandle;
 
 use ito_notices::Kind;
 
-use crate::{clean, svg, App, Screen};
+use crate::{svg, App, Screen};
 
 /// What the pages are made into.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,7 +172,7 @@ impl App {
         let what = if what == What::Print && self.script.is_some() { What::Pdf } else { what };
         let busy = t.tr(if what == What::Print { "export.printing" } else { "export.busy" }).to_owned();
         if self.screen == Screen::Clean {
-            self.clean.said = Some((busy, time + BUSY));
+            self.clean.said = Some((Kind::Info, busy, time + BUSY));
         }
         let worker = self.export.get_or_insert_with(|| {
             let ctx = ctx.clone();
@@ -208,7 +208,7 @@ impl App {
                     let words = t.trf("export.failed", &[&e]);
                     self.say(Kind::Err, &words);
                     if self.screen == Screen::Clean {
-                        self.clean.said = Some((words, time + clean::SAID));
+                        self.clean.say(Kind::Err, words, time);
                     }
                 }
             }
@@ -225,7 +225,7 @@ impl App {
     /// The tools row says it on the clean copy; elsewhere, a notice does.
     fn tell(&mut self, kind: Kind, words: String, time: f64) {
         if self.screen == Screen::Clean {
-            self.clean.said = Some((words, time + clean::SAID));
+            self.clean.say(kind, words, time);
         } else {
             self.say(kind, &words);
         }

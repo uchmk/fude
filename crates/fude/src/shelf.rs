@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::band::{self, Band, Hit, Kept};
 use crate::config::{OnContinue, Topic};
 use crate::notebook::{self, BadName, Done, Job, Note, Piece, Record};
-use crate::{clean, stats, App, Screen};
+use crate::{stats, App, Screen};
 
 /// The notebooks' column, as wide as the settings' pages.
 const SIDE: f32 = 260.0;
@@ -309,11 +309,11 @@ impl App {
     pub fn save_piece(&mut self, time: f64) {
         self.bind_piece();
         let t = &self.table;
-        let words = match &self.piece {
-            Some(stem) => t.trf("clean.saved", &[&format!("{stem}.txt")]),
-            None => t.tr("clean.save_empty").to_owned(),
+        let (kind, words) = match &self.piece {
+            Some(stem) => (Kind::Ok, t.trf("clean.saved", &[&format!("{stem}.txt")])),
+            None => (Kind::Info, t.tr("clean.save_empty").to_owned()),
         };
-        self.clean.said = Some((words, time + clean::SAID));
+        self.clean.say(kind, words, time);
     }
 
     /// ←→ on the clean copy: the piece `by` places on in this notebook (1
@@ -331,7 +331,7 @@ impl App {
             }
             None => {
                 let k = if by < 0 { "clean.first" } else { "clean.last" };
-                self.clean.said = Some((self.table.tr(k).to_owned(), time + clean::SAID));
+                self.clean.say(Kind::Info, self.table.tr(k).to_owned(), time);
             }
         }
     }
