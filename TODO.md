@@ -51,7 +51,7 @@
 
 - [x] [uchmk/ito#43](https://github.com/uchmk/ito/issues/43) 区切りのボタン（seg） → v0.117.0。清書の道具の列（紙・向き・マス・1 行）を `ito_prefs::seg` に。
 - [x] [uchmk/ito#44](https://github.com/uchmk/ito/issues/44) 塗ったボタン（primary・danger） → v0.118.0 `ab21bf8`。清書の帯の「続きを書く」を `Tone::Primary` に。
-- [x] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → v0.116.0 `8eabb2a` に上げた（今は v0.118.0 `ab21bf8`）。
+- [x] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → v0.116.0 `8eabb2a` に上げた（今は v0.119.1 `e4569fa`）。
 - [ ] [uchmk/ito#46](https://github.com/uchmk/ito/issues/46) 共通の `[notify]` の読み書きと送る所 → 設定の「通知」ページと、上限の知らせをシステムの通知にも。
 
 ## 画面の確認（TESTING-CHECKS.md、2026-10-27）で見つけたもの
@@ -63,5 +63,4 @@
 - [ ] F12 の報告の context が「Config: defaults only」だけ（`ito_bugreport` に設定のパスを渡していない）。
 - [x] ベルを押しても通知の一覧が開かない → ito v0.116.1 `565a36e` で直った。
 - [x] 設定の「お題を足す」の欄が Enter のあとフォーカスを失う → fude の側で `ito_prefs::field_id` にフォーカスを戻す。
-- [ ] ito に知らせた: `ito_prefs::seg` の選んだ所の字が `on_accent` でなく地の字の色のまま（明るい塗りに明るい字）。
-  直ったら rev を上げるだけ。
+- [x] `ito_prefs::seg` の選んだ所の字が `on_accent` でなく地の字の色のまま → ito v0.119.1 `e4569fa` で直った。
