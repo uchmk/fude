@@ -83,8 +83,13 @@ fn index<'a>(w: &'static Words, more: &'static MoreWords, kw: &'static KeyWords,
     vec![
         (GENERAL, w.language),
         (GENERAL, w.scale),
-        (GENERAL, "language"),
-        (GENERAL, "scale"),
+        (GENERAL, w.clock),
+        (GENERAL, w.show_time),
+        (GENERAL, w.time_format),
+        (GENERAL, w.show_date),
+        (GENERAL, w.date_format),
+        (GENERAL, w.weekday),
+        (GENERAL, "[clock]"),
         (THEME, w.mode),
         (THEME, w.themes),
         (THEME, w.preview),
@@ -134,6 +139,7 @@ fn index<'a>(w: &'static Words, more: &'static MoreWords, kw: &'static KeyWords,
         (NOTIFY, tr("settings.notify_limit_sound")),
     ]
     .into_iter()
+    .chain(ito_prefs::GENERAL_KEYS.map(|k| (GENERAL, k)))
     .chain(WRITE_KEYS.map(|k| (WRITE, k)))
     .chain(NOTE_KEYS.map(|k| (NOTE, k)))
     .chain(ito_prefs::keys_index(kw).into_iter().map(|t| (KEYS, t)))
@@ -183,12 +189,15 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     let (config, drafts) = (prefs.config, &mut prefs.drafts);
     let (common, themes, base) = (&prefs.common, &prefs.themes, prefs.base.as_deref());
     let out = ito_prefs::show(ui, ito_theme::colors(), &mut prefs.state, &nav, keys, |ui, page, l| match page {
-        GENERAL => section(ui, l, tr("settings.display"), |ui| {
-            let now = common.language.as_deref().unwrap_or("auto");
-            asked.extend(ito_prefs::language_row(ui, l, w, now, ""));
-            ito_prefs::sep(ui, l);
-            asked.extend(ito_prefs::scale_row(ui, l, w, common.scale_or_one(), ""));
-        }),
+        GENERAL => {
+            section(ui, l, tr("settings.display"), |ui| {
+                let now = common.language.as_deref().unwrap_or("auto");
+                asked.extend(ito_prefs::language_row(ui, l, w, now, ""));
+                ito_prefs::sep(ui, l);
+                asked.extend(ito_prefs::scale_row(ui, l, w, common.scale_or_one(), ""));
+            });
+            asked.extend(ito_prefs::clock_card(ui, l, w, &common.clock_or(None)));
+        }
         WRITE => config_asked = write_page(ui, l, t, config),
         NOTE => config_asked = note_page(ui, l, t, config, drafts, &topics),
         THEME => {
