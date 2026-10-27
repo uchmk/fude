@@ -194,6 +194,8 @@ enum Command {
     ResetScale,
     Quit,
     Export(export::What, export::Whole),
+    /// The other mode's theme, as the title bar's tag does.
+    Theme,
 }
 
 impl App {
@@ -515,7 +517,8 @@ impl App {
             unread,
             any_error: ito_notices::any_error(&self.notices),
             centre: true,
-            right_min: 0.0,
+            // The theme tag, right of the bell.
+            right_min: 60.0,
             words: ito_titlebar::Words {
                 search: tr("title.search"),
                 search_key: "Ctrl+Shift+P",
@@ -527,6 +530,8 @@ impl App {
             },
         };
         let name = tr("app.title").to_owned();
+        let theme = ito_titlebar::ThemeWords { dark: tr("title.dark"), light: tr("title.light"), hover: tr("title.theme") };
+        let mut flip = false;
         let out = ito_titlebar::show(
             ui,
             &spec,
@@ -547,8 +552,11 @@ impl App {
                 }
                 x
             },
-            |_, _| {},
+            |ui, rect| flip = ito_titlebar::theme_tag(ui, rect, !ito_theme::colors().light, &theme).clicked,
         );
+        if flip {
+            self.flip_theme();
+        }
         if let Some(r) = out.bell_rect {
             self.bell_at = r;
         }
@@ -563,35 +571,52 @@ impl App {
         }
     }
 
+    /// The mode not shown now: its theme into common.toml, which is read
+    /// back and put on.
+    fn flip_theme(&self) {
+        let (choice, dark, light) = self.prefs.common.theme_choice(None);
+        let changes = ito_prefs::flip_theme((&choice, &dark, &light), ito_theme::colors().light);
+        self.prefs.common_change(changes, self.table.tr("settings.no_folder"));
+    }
+
     fn commands(&self) -> Vec<ito_palette::Entry<Command>> {
         let t = &self.table;
         let tr = |k: &'static str| t.tr(k);
         let hint = |a| self.keymap.hint(a).unwrap_or_default();
+        // Grouped as the mock has them, the group's name searched too.
+        let screen = tr("palette.group_screen");
+        let set = tr("palette.group_settings");
+        let clean = tr("palette.group_clean");
+        let write = tr("palette.group_write");
+        let theme = tr("palette.group_theme");
+        let app = tr("palette.group_app");
+        let entry = |title: &'static str, key: &str, c: Command, group: &str| ito_palette::Entry::new(tr(title), key, c).in_group(group);
         vec![
-            ito_palette::Entry::new(tr("palette.clean"), "Esc", Command::Clean),
-            ito_palette::Entry::new(tr("palette.write"), "Esc", Command::Write),
-            ito_palette::Entry::new(tr("palette.settings"), hint(Act::Settings), Command::Settings),
-            ito_palette::Entry::new(tr("palette.write_settings"), "", Command::Page(settings::WRITE)),
-            ito_palette::Entry::new(tr("palette.clean_settings"), "", Command::Page(settings::NOTE)),
-            ito_palette::Entry::new(tr("palette.paper_genko"), "", Command::Paper(Paper::Genko)),
-            ito_palette::Entry::new(tr("palette.paper_ruled"), "", Command::Paper(Paper::Ruled)),
-            ito_palette::Entry::new(tr("palette.paper_graph"), "", Command::Paper(Paper::Graph)),
-            ito_palette::Entry::new(tr("palette.paper_plain"), "", Command::Paper(Paper::Plain)),
-            ito_palette::Entry::new(tr("palette.flip_dir"), "", Command::FlipDir),
-            ito_palette::Entry::new(tr("palette.copy"), "Ctrl+C", Command::Copy),
-            ito_palette::Entry::new(tr("palette.new"), "Ctrl+N", Command::New),
-            ito_palette::Entry::new(tr("palette.shelf"), hint(Act::Shelf), Command::Shelf),
-            ito_palette::Entry::new(tr("palette.save"), "Ctrl+S", Command::Save),
-            ito_palette::Entry::new(tr("palette.export_pdf"), hint(Act::Export), Command::Export(What::Pdf, Whole::Piece)),
-            ito_palette::Entry::new(tr("palette.export_png"), "", Command::Export(What::Png, Whole::Piece)),
-            ito_palette::Entry::new(tr("palette.export_note_pdf"), "", Command::Export(What::Pdf, Whole::Note)),
-            ito_palette::Entry::new(tr("palette.export_note_png"), "", Command::Export(What::Png, Whole::Note)),
-            ito_palette::Entry::new(tr("palette.print"), hint(Act::Print), Command::Export(What::Print, Whole::Piece)),
-            ito_palette::Entry::new(tr("palette.print_note"), "", Command::Export(What::Print, Whole::Note)),
-            ito_palette::Entry::new(tr("palette.help"), hint(Act::Help), Command::Help),
-            ito_palette::Entry::new(tr("palette.report_bug"), "F12", Command::ReportBug),
-            ito_palette::Entry::new(tr("palette.reset_scale"), "Ctrl+0", Command::ResetScale),
-            ito_palette::Entry::new(tr("palette.quit"), hint(Act::Quit), Command::Quit),
+            entry("palette.clean", "Esc", Command::Clean, screen),
+            entry("palette.write", "Esc", Command::Write, screen),
+            entry("palette.settings", &hint(Act::Settings), Command::Settings, screen),
+            entry("palette.shelf", &hint(Act::Shelf), Command::Shelf, screen),
+            entry("palette.help", &hint(Act::Help), Command::Help, screen),
+            entry("palette.write_settings", "", Command::Page(settings::WRITE), set),
+            entry("palette.clean_settings", "", Command::Page(settings::NOTE), set),
+            entry("palette.paper_genko", "", Command::Paper(Paper::Genko), clean),
+            entry("palette.paper_ruled", "", Command::Paper(Paper::Ruled), clean),
+            entry("palette.paper_graph", "", Command::Paper(Paper::Graph), clean),
+            entry("palette.paper_plain", "", Command::Paper(Paper::Plain), clean),
+            entry("palette.flip_dir", "", Command::FlipDir, clean),
+            entry("palette.copy", "Ctrl+C", Command::Copy, clean),
+            entry("palette.save", "Ctrl+S", Command::Save, clean),
+            entry("palette.export_pdf", &hint(Act::Export), Command::Export(What::Pdf, Whole::Piece), clean),
+            entry("palette.export_png", "", Command::Export(What::Png, Whole::Piece), clean),
+            entry("palette.export_note_pdf", "", Command::Export(What::Pdf, Whole::Note), clean),
+            entry("palette.export_note_png", "", Command::Export(What::Png, Whole::Note), clean),
+            entry("palette.print", &hint(Act::Print), Command::Export(What::Print, Whole::Piece), clean),
+            entry("palette.print_note", "", Command::Export(What::Print, Whole::Note), clean),
+            entry("palette.new", "Ctrl+N", Command::New, write),
+            entry("palette.theme", "", Command::Theme, theme),
+            entry("palette.report_bug", "F12", Command::ReportBug, app),
+            entry("palette.reset_scale", "Ctrl+0", Command::ResetScale, app),
+            entry("palette.quit", &hint(Act::Quit), Command::Quit, app),
         ]
     }
 
@@ -664,6 +689,7 @@ impl App {
             Command::ResetScale => self.scale_to(ctx, ito_common::ScaleTo::Reset),
             Command::Quit => self.quit = true,
             Command::Export(what, whole) => self.export(ctx, what, whole),
+            Command::Theme => self.flip_theme(),
         }
     }
 

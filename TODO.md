@@ -101,13 +101,27 @@
 
 ### ito 待ち（来たら rev を上げて配線する。来るまで fude に代わりを書かない）
 
-- [ ] タイトルバーのテーマの札（ダーク／ライト、押すと切り替わる）と、パレットの「テーマを切り替える」
-  → [uchmk/ito#52](https://github.com/uchmk/ito/issues/52)。来たら設定のテーマのページに「タイトルバーの札でも切り替えられます」も。
-- [ ] パレットの組（画面・設定・清書・書く・テーマ）。組の名でも探せる → [uchmk/ito#53](https://github.com/uchmk/ito/issues/53)。
-- [ ] 設定の検索で、全部のページの当たりを 1 つのページに並べる（「「q」を含む設定」、「ページ › カード」、当たりの無いページは薄く、
+#52〜#55 は ito v0.124.0（`ed33cce`）で入り、配線した。
+
+- [x] タイトルバーのテーマの札（ダーク／ライト、押すと切り替わる）と、パレットの「テーマを切り替える」
+  → [uchmk/ito#52](https://github.com/uchmk/ito/issues/52)。札は `ito_titlebar::theme_tag`、切り替えは `ito_prefs::flip_theme`
+  （common.toml の `theme` を対の明るい方・暗い方へ）。テーマのページの注に「タイトルバーの札でも切り替えられます」も。
+- [x] パレットの組（画面・設定・清書・書く・テーマ）。組の名でも探せる → [uchmk/ito#53](https://github.com/uchmk/ito/issues/53)。
+  → `Entry::in_group` で 画面・設定・清書・書く・テーマ・アプリ の 6 組。
+- [x] 設定の検索で、全部のページの当たりを 1 つのページに並べる（「「q」を含む設定」、「ページ › カード」、当たりの無いページは薄く、
   Esc は先に検索を消す） → [uchmk/ito#54](https://github.com/uchmk/ito/issues/54)。
-- [ ] 設定の左の見出し「fude」「共通（ito）」、共通のページの「ito の共通のページ」の札、ページの頭の「← 書く画面へ戻る Esc」
-  → [uchmk/ito#55](https://github.com/uchmk/ito/issues/55)。
+  → `ito_prefs::show_with` の `Extras::results`。画面で見て、残ったものを下の #56〜#58 に出した。
+- [x] 設定の左の見出し「fude」「共通（ito）」、共通のページの「ito の共通のページ」の札、ページの頭の「← 書く画面へ戻る Esc」
+  → [uchmk/ito#55](https://github.com/uchmk/ito/issues/55)。戻るのボタンは来た画面（書く・清書・本棚）の名を言う。
+  ページの順は ito の決まり（一般が先頭、このアプリについてが最後）のままなので、「共通（ito）」の見出しが 2 度出る → #59。
+- [ ] 設定の検索の結果で、お題を足す欄（`ito_prefs::field`）が自分と ID でぶつかる（`section` が当たりを探すのに `rows` を
+  先に見えないまま回すため。debug のビルドだけ赤い字が出て、打つのはできる） → [uchmk/ito#56](https://github.com/uchmk/ito/issues/56)。
+- [ ] 設定の検索の結果に、通知のページの「試しに送る」「既定に戻す」がカードの外に出る（どの言葉で探しても）
+  → [uchmk/ito#57](https://github.com/uchmk/ito/issues/57)。
+- [ ] 設定の検索の欄で Esc を押すと、欄を出るだけで字が残る（消すのに 2 回目が要る）。モックは 1 回で消えて欄に残る
+  → [uchmk/ito#58](https://github.com/uchmk/ito/issues/58)。
+- [ ] 設定の左で「共通（ito）」の見出しが 2 度出る（一般・テーマ／fude のページ／キー〜このアプリについて）。モックは fude の
+  ページが先で、共通は 1 つにまとまる。どちらに合わせるかを ito に聞いた → [uchmk/ito#59](https://github.com/uchmk/ito/issues/59)。
 
 ### わざと違うもの（直さない）
 

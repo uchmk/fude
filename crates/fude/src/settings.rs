@@ -21,7 +21,7 @@ use crate::config::{self, Config, Dir, Face, Hang, OnContinue, Paper, Point, Rul
 use crate::keymap::Keymap;
 use crate::notify::{self, NotifyCfg};
 use crate::sound::Cue;
-use crate::App;
+use crate::{App, Screen};
 
 pub const GENERAL: usize = 0;
 pub const THEME: usize = 1;
@@ -35,6 +35,9 @@ pub const ABOUT: usize = 7;
 /// The pages fude has besides General and About, which every app has.
 /// `App` is the Writing page and the This notebook page.
 const HAS: [Page; 5] = [Page::Theme, Page::App, Page::Keys, Page::Notifications, Page::Advanced];
+
+/// The pages every uchmk app shares, drawn by ito: tagged so in their head.
+const SHARED: [usize; 6] = [GENERAL, THEME, KEYS, NOTIFY, ADVANCED, ABOUT];
 
 /// The Writing page's keys in config.toml, which the search finds too.
 const WRITE_KEYS: [&str; 11] = [
@@ -175,6 +178,18 @@ pub fn show(ui: &mut Ui, app: &mut App) {
         .collect();
     let index = index(w, more, kw, t);
     let nav = ito_prefs::Nav { pages: &pages, index: &index, words: w, file: "common.toml" };
+    // General comes first in every app, so fude's two pages sit between
+    // ito's: the nav names whose each run is.
+    let groups = [(tr("settings.group_common"), GENERAL), (tr("settings.group_app"), WRITE), (tr("settings.group_common"), KEYS)];
+    let back = match app.back {
+        Screen::Clean => tr("settings.back_clean"),
+        Screen::Shelf => tr("settings.back_shelf"),
+        _ => tr("settings.back_write"),
+    };
+    let results =
+        ito_prefs::Results { head: tr("settings.results_head"), lead: tr("settings.results_lead"), none: tr("settings.results_none") };
+    let extras =
+        ito_prefs::Extras { groups: &groups, shared: &SHARED, shared_tag: tr("settings.shared_tag"), back, results: Some(results) };
     let layers = app.keymap.layers();
     let state_dir = ito_common::state_dir("fude");
     let mut asked: Vec<CommonChange> = Vec::new();
@@ -194,7 +209,9 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     let keys_edit = &mut prefs.keys_edit;
     let (config, drafts) = (prefs.config, &mut prefs.drafts);
     let (common, themes, base) = (&prefs.common, &prefs.themes, prefs.base.as_deref());
-    let out = ito_prefs::show(ui, ito_theme::colors(), &mut prefs.state, &nav, keys, |ui, page, l| match page {
+    // A search draws every page that has it in one go, so a page adds to
+    // what is asked and never sets it.
+    let out = ito_prefs::show_with(ui, ito_theme::colors(), &mut prefs.state, &nav, keys, extras, |ui, page, l| match page {
         GENERAL => {
             section(ui, l, tr("settings.display"), |ui| {
                 let now = common.language.as_deref().unwrap_or("auto");
@@ -206,15 +223,26 @@ pub fn show(ui: &mut Ui, app: &mut App) {
             let window = ito_prefs::window_card(ui, l, more, &common.window_or_default());
             asked.extend(window.changes);
             forget |= window.forget;
-            startup_toggled = ito_prefs::startup_card(ui, l, more, startup_now);
+            startup_toggled = startup_toggled.or(ito_prefs::startup_card(ui, l, more, startup_now));
         }
-        WRITE => config_asked = write_page(ui, l, t, config),
-        NOTE => config_asked = note_page(ui, l, t, config, drafts, &topics),
+        WRITE => config_asked.extend(write_page(ui, l, t, config)),
+        NOTE => config_asked.extend(note_page(ui, l, t, config, drafts, &topics)),
         THEME => {
             let (choice, dark, light) = common.theme_choice(None);
             let note = match base {
-                Some(b) => format!("{} {}", tr("settings.theme_note"), themes_dir(b).display()),
-                None => tr("settings.no_folder").into(),
+                Some(b) => format!(
+                    "{}
+{} {}",
+                    tr("settings.theme_tag_note"),
+                    tr("settings.theme_note"),
+                    themes_dir(b).display()
+                ),
+                None => format!(
+                    "{}
+{}",
+                    tr("settings.theme_tag_note"),
+                    tr("settings.no_folder")
+                ),
             };
             asked.extend(ito_prefs::theme_page(ui, l, w, themes, (&choice, &dark, &light), &note, |ui| {
                 preview(ui, tr("settings.preview_text"))
@@ -285,8 +313,10 @@ pub fn show(ui: &mut Ui, app: &mut App) {
             app.say(ito_notices::Kind::Err, &e);
         }
     }
-    // The OS is asked once the General page shows, not at every start.
-    if app.startup.is_none() && app.startup_rx.is_none() && app.prefs.state.page == GENERAL {
+    // The OS is asked once the General page shows (or a search may show
+    // its card), not at every start.
+    let searched = !app.prefs.state.query.trim().is_empty();
+    if app.startup.is_none() && app.startup_rx.is_none() && (app.prefs.state.page == GENERAL || searched) {
         app.startup_rx = Some(startup_task(ui.ctx(), None));
     }
     for a in advanced {
@@ -309,8 +339,9 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     if out.open_file {
         app.prefs.open_common(&no_folder);
     }
-    // Gone to another page: the keys stop being taken for this one.
-    if app.prefs.state.page != KEYS {
+    // Gone to another page: the keys stop being taken for this one. A
+    // search's results may show the Keys page from any.
+    if app.prefs.state.page != KEYS && !searched {
         app.prefs.keys_edit.capture = None;
         app.prefs.keys_edit.listening = false;
     }
