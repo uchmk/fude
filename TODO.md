@@ -2,8 +2,8 @@
 
 雛形（ito の `templates/app`）から作った。雛形で動いているのは、窓（場所を覚える）、common.toml のテーマ・言語・倍率、
 `--version` / `--help`、F12 の不具合報告、`fude.com`、アイコンと版の情報、TESTING の表の生成まで。
-下は**依存は入っているが、まだ配線していないもの**。先に作った別のアプリが手本になる。自前で書かずに ito のクレートを使う
-（足りない所は ito に頼む。`scripts/ito-first.py` が見ている）。
+下は雛形のときに**依存は入っていたが、まだ配線していなかったもの**（0.9.0 までに全部配線した）。先に作った別のアプリが
+手本になった。自前で書かずに ito のクレートを使う（足りない所は ito に頼む。`scripts/ito-first.py` が見ている）。
 
 - [x] `--keys` の台本: `ito-keyscript`（`Dialect`・`Runner`・`Press`）。手本は michi の `main.rs`。`lanes.conf` の `keys_env` と合わせる。
 - [x] `keymap.toml` と設定の「キー」ページ: `ito-keys`・`ito-keymap`・`ito-prefs` の `keys_page`。既定のキーは `defaults/keymap.toml`
@@ -46,7 +46,7 @@
 - [x] [uchmk/ito#41](https://github.com/uchmk/ito/issues/41) 短い音 → 0.7.0 `sound.rs`（打つ音）と設定の行。
 - [x] [uchmk/ito#42](https://github.com/uchmk/ito/issues/42) `ito-export` → 0.8.0 `svg.rs`・`export.rs`（PNG・PDF・印刷、1 篇・1 冊）。
 
-## ito に頼んでいるもの（0.4.0 から。来るまで ito-prefs の今あるもので代える）
+## 0.4.0 から ito に頼んだもの（全部入った）
 
 - [x] [uchmk/ito#43](https://github.com/uchmk/ito/issues/43) 区切りのボタン（seg） → v0.117.0。清書の道具の列（紙・向き・マス・1 行）を `ito_prefs::seg` に。
 - [x] [uchmk/ito#44](https://github.com/uchmk/ito/issues/44) 塗ったボタン（primary・danger） → v0.118.0 `ab21bf8`。清書の帯の「続きを書く」を `Tone::Primary` に。
