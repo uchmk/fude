@@ -58,7 +58,7 @@ ito-openin = { git = "https://github.com/uchmk/ito", rev = "8e62a9d718ee6787e377
 ito-export = { git = "https://github.com/uchmk/ito", rev = "8e62a9d718ee6787e377869e734c748b331f206d" }
 # eframe's own defaults, but for `winit/default`: that draws the title on
 # Wayland's window frame with ab_glyph, which brings the unmaintained ttf-parser.
-eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "links", "wayland", "web_screen_reader", "wgpu", "x11"] }
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "default_fonts", "links", "wayland", "web_screen_reader", "wgpu", "x11"] }
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita-notitle"] }
 egui = "0.36"
 # The draft and config.toml, read into structs.
