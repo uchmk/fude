@@ -8,7 +8,7 @@ writes what is left to `TESTING-CHECKS.md`.
 
 | # | Do | Expect |
 | --- | --- | --- |
-| 1.1 | Run `fude` | A window of 1280x800 opens with the title "fude"; the title bar and the taskbar show the icon, a vermilion square with a brush's stroke in it |
+| 1.1 | Run `fude` | A window of 1280x800 opens with the title "fude"; the taskbar (and `Alt+Tab`) show the icon, a vermilion square with a brush's stroke in it |
 | 1.2 | Move and resize the window, close it and start it again | The window comes back at the same place and size |
 | 1.3 | Press `F12` | The browser opens the repository's new issue form with the version and OS filled in |
 | 1.4 | Start it with no `Documents\fude` folder | `Documents\fude\ノート\` is made and the band takes letters at once, with nothing to answer first |
@@ -32,7 +32,7 @@ writes what is left to `TESTING-CHECKS.md`.
 | # | Do | Expect |
 | --- | --- | --- |
 | 3.1 | Settings, This notebook: set the letter limit to 10, then type 12 letters | At the 10th the band says the limit is reached, a small bell rings once, and the screen stays as it is; the 11th and 12th go in |
-| 3.2 | Set a time limit of 1 minute, with the clock starting at the first letter; wait, then type | The clock stands at 0:00 until the first letter, and the band tells of the limit a minute after it |
+| 3.2 | Set a time limit of 1 minute, with the clock starting at the first letter; wait, then type | The clock does not run until the first letter, and the band tells of the limit a minute after it |
 | 3.3 | Past a limit, press `Esc`, then `Enter` | The writing goes on, and the limit is raised or lifted as the Writing page says |
 
 ## 4. The clean copy
@@ -47,7 +47,7 @@ writes what is left to `TESTING-CHECKS.md`.
 | 4.6 | Change the paper, the direction and the squares in the tools row | The clean copy is drawn again at once in each |
 | 4.7 | Press `Ctrl+C` and paste into Notepad | The text comes with a full-width space at the head of each indented paragraph, and the tools row says how many letters were copied |
 | 4.8 | Click a letter in the clean copy | The writing comes back with the input point at that letter |
-| 4.9 | On the clean copy, type a letter | The writing comes back with that letter added at the end |
+| 4.9 | On the clean copy, type a letter | The writing comes back with that letter added at the input point |
 | 4.10 | Write a few lines at different speeds, stopping once for 40 seconds, and press `Esc` | Beside each line is a line as long as it was fast, and a dot where the hand stopped; Settings, Writing can turn them off, and they are not in a copy or an export |
 | 4.11 | Write two pieces, then on the clean copy press `Left` and `Right` | The pieces turn over one by one (vertically, `Left` is the newer one), and at the end the band says there is no more |
 
@@ -96,7 +96,7 @@ writes what is left to `TESTING-CHECKS.md`.
 | --- | --- | --- |
 | 9.1 | Press `F1` on the writing, then on the clean copy | The key list shows the keymap's keys, then the writing's, the clean copy's, the shelf's and the fixed ones; closed on the clean copy, it goes back there |
 | 9.2 | Press `Ctrl+Shift+P` and type `設定` | The palette lists the settings, the writing's page and this notebook's page; each opens the settings on its page |
-| 9.3 | Write `[[app.keymap]]` with `on = "<F2>"` and `run = "help"` in `keymap.toml`, then press `F2` | The key list opens without a restart; a misspelt command is told of in a notification |
+| 9.3 | Write `[[app.prepend_keymap]]` with `on = "<F2>"` and `run = "help"` in `keymap.toml`, then press `F2` | The key list opens without a restart; a misspelt command is told of in a notification |
 | 9.4 | Press `Ctrl+=`, `Ctrl+-` and `Ctrl+0` | Everything grows, shrinks and comes back to its size |
 | 9.5 | Press `Ctrl+Q` | fude closes, and the piece is bound to its file first |
 
