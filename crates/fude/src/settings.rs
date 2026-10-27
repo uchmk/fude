@@ -23,10 +23,10 @@ use crate::notify::{self, NotifyCfg};
 use crate::sound::Cue;
 use crate::{App, Screen};
 
-pub const GENERAL: usize = 0;
-pub const THEME: usize = 1;
-pub const WRITE: usize = 2;
-pub const NOTE: usize = 3;
+pub const WRITE: usize = 0;
+pub const NOTE: usize = 1;
+pub const GENERAL: usize = 2;
+pub const THEME: usize = 3;
 pub const KEYS: usize = 4;
 pub const NOTIFY: usize = 5;
 pub const ADVANCED: usize = 6;
@@ -168,7 +168,7 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     // The notebook's page is led by its name.
     let name = if app.note.is_empty() { tr("note.default") } else { app.note.as_str() };
     let note_lead = t.trf("settings.clean_lead", &[name]);
-    let pages: Vec<_> = ito_prefs::default_order(&HAS)
+    let pages: Vec<_> = ito_prefs::default_order_grouped(&HAS)
         .into_iter()
         .flat_map(|p| match p {
             Page::App => vec![(tr("settings.write"), tr("settings.write_lead")), (tr("settings.clean"), note_lead.as_str())],
@@ -178,9 +178,9 @@ pub fn show(ui: &mut Ui, app: &mut App) {
         .collect();
     let index = index(w, more, kw, t);
     let nav = ito_prefs::Nav { pages: &pages, index: &index, words: w, file: "common.toml" };
-    // General comes first in every app, so fude's two pages sit between
-    // ito's: the nav names whose each run is.
-    let groups = [(tr("settings.group_common"), GENERAL), (tr("settings.group_app"), WRITE), (tr("settings.group_common"), KEYS)];
+    // fude's two pages come first, then every page ito draws: the nav names
+    // whose each run is.
+    let groups = [(tr("settings.group_app"), WRITE), (tr("settings.group_common"), GENERAL)];
     let back = match app.back {
         Screen::Clean => tr("settings.back_clean"),
         Screen::Shelf => tr("settings.back_shelf"),
@@ -725,10 +725,10 @@ mod tests {
     use egui::{pos2, Rect};
 
     #[test]
-    fn pages_follow_ito_default_order() {
-        assert_eq!([GENERAL, THEME, WRITE, NOTE, KEYS, NOTIFY, ADVANCED, ABOUT], [0, 1, 2, 3, 4, 5, 6, 7]);
-        let order = [Page::General, Page::Theme, Page::App, Page::Keys, Page::Notifications, Page::Advanced, Page::About];
-        assert_eq!(ito_prefs::default_order(&HAS), order);
+    fn pages_follow_ito_grouped_order() {
+        assert_eq!([WRITE, NOTE, GENERAL, THEME, KEYS, NOTIFY, ADVANCED, ABOUT], [0, 1, 2, 3, 4, 5, 6, 7]);
+        let order = [Page::App, Page::General, Page::Theme, Page::Keys, Page::Notifications, Page::Advanced, Page::About];
+        assert_eq!(ito_prefs::default_order_grouped(&HAS), order);
     }
 
     /// The Keys page takes the keys pressed while a key is being set (Esc
