@@ -1,7 +1,7 @@
 //! What the settings screen reads and writes (ito's `docs/common-spec.md`):
 //! common.toml (the language, the scale, the theme and the clock, shared by
 //! every uchmk app), the user's themes, fude's keymap.toml and its own
-//! config.toml, and the open notebook's own settings in its `fude.toml`
+//! config.toml (with `[notify]`), and the open notebook's own settings in its `fude.toml`
 //! (over config.toml's `[note]`). The files are watched every 2 s and
 //! written on threads of their own; what was read comes back as a
 //! [`Reload`], which [`Prefs::pump`] folds in. The UI thread never touches
@@ -19,6 +19,7 @@ use ito_theme::Theme;
 
 use crate::config::{self, Config};
 use crate::notebook;
+use crate::notify::{self, NotifyCfg};
 
 /// How often the files are looked at.
 const WATCH: Duration = Duration::from_secs(2);
@@ -30,7 +31,7 @@ pub enum Reload {
     /// keymap.toml's text (`None` when there is none), or why it could not
     /// be read.
     Keymap(Result<Option<String>, String>),
-    Config(Result<(Config, Vec<String>), String>),
+    Config(Result<(Config, NotifyCfg, Vec<String>), String>),
     /// A notebook's `fude.toml` (its path) and the `[note]` read from it.
     Note(PathBuf, Result<toml::Table, String>),
     Failed(String),
@@ -118,6 +119,9 @@ pub struct Prefs {
     /// it, and what in either was not understood.
     pub config: Config,
     pub config_warn: Vec<String>,
+    /// config.toml's `[notify]`: how a limit reached is told while the
+    /// window is behind.
+    pub notify: NotifyCfg,
     /// config.toml alone.
     global: Config,
     global_warn: Vec<String>,
@@ -158,6 +162,7 @@ impl Prefs {
             keys_edit: ito_prefs::KeysEdit::default(),
             config: Config::default(),
             config_warn: Vec::new(),
+            notify: NotifyCfg::new(&notify::EVENTS),
             global: Config::default(),
             global_warn: Vec::new(),
             note: None,
@@ -189,7 +194,7 @@ impl Prefs {
                 Err(e) => p.keymap_new = Some(Some(e)),
             }
             match config::read(&config::path(b)) {
-                Ok((c, w)) => (p.global, p.global_warn) = (c, w),
+                Ok((c, n, w)) => (p.global, p.notify, p.global_warn) = (c, n, w),
                 Err(e) => p.global_warn = vec![e],
             }
             p.overlay();
@@ -313,8 +318,8 @@ impl Prefs {
                     self.keymap = t;
                     self.keymap_new = Some(None);
                 }
-                Reload::Config(Ok((c, w))) => {
-                    (self.global, self.global_warn) = (c, w);
+                Reload::Config(Ok((c, n, w))) => {
+                    (self.global, self.notify, self.global_warn) = (c, n, w);
                     self.overlay();
                 }
                 // Unreadable: the settings stay as they are.
@@ -452,6 +457,29 @@ impl Prefs {
             let _one = CONFIG_ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
             let path = config::path(&base);
             let r = match config::write(&path, table, key, &value) {
+                Ok(()) => Reload::Config(config::read(&path)),
+                Err(e) => Reload::Failed(e),
+            };
+            Self::send_back(&tx, &wake, r);
+        });
+    }
+
+    /// The Notifications page's `edits` to `[notify]` and its `webhooks`
+    /// (when they changed) into config.toml on a thread, which then reads it
+    /// again.
+    pub fn notify_edit(&self, edits: Vec<(&'static str, String)>, webhooks: Option<Vec<ito_notify::webhook::Place>>, no_folder: &str) {
+        if edits.is_empty() && webhooks.is_none() {
+            return;
+        }
+        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        let Some(base) = self.base.clone() else {
+            Self::send_back(&tx, &wake, Reload::Failed(no_folder.into()));
+            return;
+        };
+        std::thread::spawn(move || {
+            let _one = CONFIG_ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+            let path = config::path(&base);
+            let r = match config::write_notify(&path, &edits, webhooks.as_deref()) {
                 Ok(()) => Reload::Config(config::read(&path)),
                 Err(e) => Reload::Failed(e),
             };

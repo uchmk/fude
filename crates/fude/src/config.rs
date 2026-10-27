@@ -1,12 +1,14 @@
 //! fude's own settings, config.toml in fude's folder (`app_dir`): `[write]`
 //! is how the band looks, counts and sounds, `[note]` the paper, the limits, the
 //! no-erase mode and the topics (the defaults of a notebook's own
-//! fude.toml; the list of topics is only a notebook's). A value that is not
-//! understood is said and left as it was.
+//! fude.toml; the list of topics is only a notebook's), and `[notify]` how a
+//! limit reached is told while the window is behind (`crate::notify`). A
+//! value that is not understood is said and left as it was.
 
 use std::path::{Path, PathBuf};
 
 use crate::band::Limits;
+use crate::notify::NotifyCfg;
 
 /// An enum written as one of a few words.
 macro_rules! words {
@@ -202,11 +204,14 @@ pub fn path(base: &Path) -> PathBuf {
     ito_common::app_dir_in(base, "fude").join("config.toml")
 }
 
-/// The settings in the file at `path` (none is the defaults) and what in it
-/// was not understood. Call it off the UI thread.
-pub fn read(path: &Path) -> Result<(Config, Vec<String>), String> {
+/// The settings in the file at `path` (none is the defaults), its
+/// `[notify]`, and what in it was not understood. Call it off the UI thread.
+pub fn read(path: &Path) -> Result<(Config, NotifyCfg, Vec<String>), String> {
     let text = ito_common::read_or_empty(path)?;
-    parse(&text).map_err(|e| format!("{}: {e}", path.display()))
+    let (c, mut warn) = parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    let (n, notify_warn) = crate::notify::read(Some(&text));
+    warn.extend(notify_warn);
+    Ok((c, n, warn))
 }
 
 pub fn parse(text: &str) -> Result<(Config, Vec<String>), String> {
@@ -222,6 +227,8 @@ pub fn parse(text: &str) -> Result<(Config, Vec<String>), String> {
                     }
                 }
             }
+            // Read by `crate::notify`.
+            ("notify", _) => {}
             _ => warn.push(format!("config.toml: `{name}` is not a setting of fude")),
         }
     }
@@ -348,6 +355,25 @@ pub fn write(path: &Path, table: &str, key: &str, value: &toml::Value) -> Result
     Ok(())
 }
 
+/// The Notifications page's `edits` to `[notify]` (TOML text) and, when
+/// they changed, its `webhooks`, into the file at `path`, keeping the rest of
+/// it. Written only when that changes it; off the UI thread.
+pub fn write_notify(path: &Path, edits: &[(&str, String)], webhooks: Option<&[ito_notify::webhook::Place]>) -> Result<(), String> {
+    let at = |e: String| format!("{}: {e}", path.display());
+    let text = ito_common::read_or_empty(path).map_err(at)?;
+    let mut new = text.clone();
+    for (key, value) in edits {
+        new = ito_common::set_key(&new, Some("notify"), key, value).map_err(at)?;
+    }
+    if let Some(places) = webhooks {
+        new = ito_prefs::write_webhooks(&new, places, true).map_err(at)?;
+    }
+    if new != text {
+        ito_common::write_atomic(path, &new).map_err(at)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -467,9 +493,11 @@ topics = [\"朝の音\", \" \", \"窓\"]
         write(&path, "write", "dir", &toml::Value::String("vertical".into())).unwrap();
         write(&path, "note", "char_limit", &toml::Value::Integer(400)).unwrap();
         write(&path, "note", "no_erase", &toml::Value::Boolean(true)).unwrap();
-        let (c, warn) = read(&path).unwrap();
+        write_notify(&path, &[("focus_mode", "false".into())], None).unwrap();
+        let (c, n, warn) = read(&path).unwrap();
         assert!(warn.is_empty(), "{warn:?}");
         assert_eq!((c.dir, c.char_limit, c.no_erase), (Dir::Vertical, 400, true));
+        assert!(!n.focus_mode());
         let note = dir.join("fude.toml");
         write(&note, "note", "topics", &topics_value(&["朝の\"音\"".into(), "窓".into()])).unwrap();
         let t: toml::Table = std::fs::read_to_string(&note).unwrap().parse().unwrap();

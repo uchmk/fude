@@ -20,6 +20,7 @@ mod icon;
 mod keymap;
 mod layout;
 mod notebook;
+mod notify;
 mod pace;
 mod prefs;
 mod settings;
@@ -803,8 +804,15 @@ impl App {
         if let Some(cue) = cue {
             self.sound(cue, now);
         }
-        if config.bell && self.band.hit().len() > hits {
+        let reached = self.band.hit().len() > hits;
+        if config.bell && reached {
             self.sound(Cue::Bell, now);
+        }
+        // Behind another window, a limit reached is told the ways `[notify]`
+        // picks; a script tells nobody.
+        if reached && self.script.is_none() && ctx.input(|i| i.viewport().focused) == Some(false) {
+            let body = write::hit_words(&self.band, &self.table);
+            notify::tell(&self.prefs.notify, self.table.tr("write.hit_title"), &body);
         }
         let settings_key = self.keymap.hint(Act::Settings).unwrap_or_else(|| "—".to_owned());
         let view = write::View {

@@ -64,6 +64,7 @@ topic = "お題: {0}"
 hit_chars = "{0} 字に達しました"
 hit_time = "{0} 分たちました"
 hit_join = "・"
+hit_title = "上限に届きました"
 go_on = "このまま書き続けられます"
 
 [settings]
@@ -179,6 +180,11 @@ topics_note = "Enter で一覧に足します。一覧はこのノートだけ�
 topic_add = "お題"
 topic_remove = "消す"
 topics_empty = "まだお題はありません。"
+notify_lead = "字数か時間の上限に届いたとき、fude の窓が後ろにあればどう知らせるか。config.toml の [notify] に書きます。"
+notify_limit = "上限に届いた"
+notify_limit_sound = "上限に届いたときの音"
+notify_test_title = "fude: 試しの通知"
+notify_test_body = "上限に届くとこのように知らせます。"
 
 [keys]
 app = "fude"

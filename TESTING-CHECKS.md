@@ -1,6 +1,6 @@
 # Checklist
 
-54 checks in TESTING.md, 52 left for a person.
+56 checks in TESTING.md, 54 left for a person.
 
 ## 1. 起動
 
@@ -26,6 +26,7 @@
 - [ ] **3.1** 「このノート」で字数の上限を 10 にして 12 字打つ → 10 字目で帯が上限を知らせ、鈴が 1 回鳴る。画面は変わらず、11・12 字目も入る — *Settings, This notebook: set the letter limit to 10, then type 12 letters → At the 10th the band says the limit is reached, a small bell rings once, and the screen stays as it is; the 11th and 12th go in*
 - [x] **3.2** 時間の上限を 1 分、時計は最初の 1 字から。待ってから打つ → 最初の字までは時計が動かず、その 1 分後に帯が知らせる — *Set a time limit of 1 minute, with the clock starting at the first letter; wait, then type → The clock does not run until the first letter, and the band tells of the limit a minute after it*
 - [x] **3.3** 上限を過ぎてから Esc、Enter → 続きを書ける。上限は「書く」ページのとおりに上がるか外れる — *Past a limit, press `Esc`, then `Enter` → The writing goes on, and the limit is raised or lifted as the Writing page says*
+- [ ] **3.4** 時間の上限を 1 分にして 1 字打ち、ほかの窓をクリックして待つ → 1 分たつと fude のアイコンのシステムの通知が上限を知らせる。fude が前にあるときは出ない — *Set a time limit of 1 minute, type a letter, then click another window and wait → When the minute is up, a system notification with fude's icon says the limit is reached; with fude in front, there is none*
 
 ## 4. 清書
 
@@ -69,10 +70,11 @@
 
 ## 8. 設定
 
-- [x] **8.1** Ctrl+, → 一般・テーマ・書く・このノート・キー・詳細・このアプリについて。ほかの uchmk のアプリと同じテーマと言語 — *Press `Ctrl+,` → The settings open on General, Theme, Writing, This notebook, Keys, Advanced and About, in the theme and the language the other uchmk apps use*
+- [x] **8.1** Ctrl+, → 一般・テーマ・書く・このノート・キー・通知・詳細・このアプリについて。ほかの uchmk のアプリと同じテーマと言語 — *Press `Ctrl+,` → The settings open on General, Theme, Writing, This notebook, Keys, Notifications, Advanced and About, in the theme and the language the other uchmk apps use*
 - [x] **8.2** 「書く」で字の大きさ・打つ所・帯に出すものを変える → すぐ効き、`config.toml` に書く — *On Writing, change the letter size, the input point and what the band shows → Each takes effect at once and is written to `config.toml`*
 - [x] **8.3** 「このノート」で紙と上限を変える → ノートの `fude.toml` の `[note]` に書き、ほかのノートは自分の値のまま — *On This notebook, change the paper and the limits → They are written to `[note]` in the notebook's `fude.toml`, and another notebook keeps its own*
 - [x] **8.4** ほかの uchmk のアプリでテーマを変える → fude も起動し直さずに従う — *Change the theme in another uchmk app → fude follows it without a restart*
+- [x] **8.5** 「通知」で音を入れ、ほかの音を選ぶ → `config.toml` の `[notify]` に書く。「既定に戻す」で音は切れ、やわらかいチャイムに戻る — *On Notifications, turn on the sound and pick another one → They are written to `[notify]` in `config.toml`; "Back to the defaults" sets the sound off and the chime again*
 
 ## 9. キー・キー一覧・パレット
 

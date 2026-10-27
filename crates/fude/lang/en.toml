@@ -65,6 +65,7 @@ topic = "Topic: {0}"
 hit_chars = "{0} letters reached"
 hit_time = "{0} minutes passed"
 hit_join = " · "
+hit_title = "A limit reached"
 go_on = "You can keep writing"
 
 [settings]
@@ -180,6 +181,11 @@ topics_note = "Enter adds it to the list. The list is this notebook's own, kept 
 topic_add = "A topic"
 topic_remove = "Remove"
 topics_empty = "No topics yet."
+notify_lead = "How a letter or time limit reached while fude's window is behind another is told. Written to config.toml's [notify]."
+notify_limit = "Limit reached"
+notify_limit_sound = "Sound when a limit is reached"
+notify_test_title = "fude: test notification"
+notify_test_body = "A limit reached is told like this."
 
 [keys]
 app = "fude"

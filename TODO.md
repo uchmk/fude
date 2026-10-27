@@ -9,13 +9,12 @@
 - [x] `keymap.toml` と設定の「キー」ページ: `ito-keys`・`ito-keymap`・`ito-prefs` の `keys_page`。既定のキーは `defaults/keymap.toml`
   （`<C-,>` 設定・`<F1>` ヘルプ・`<C-q>` 終了）。手本は minato の `keymap.rs`・`prefs.rs`。
 - [x] F1 のキー一覧: `ito-help`（`ito-keymap` の一覧を描く）。手本は michi の `app.rs`・`ui.rs`。
-- [ ] 通知と設定の「通知」ページ: `ito-notify`（システムの通知・音・webhook）と `ito-prefs` の `notify_page`。
-  間の `[notify]` の読み書きと送る所は michi と kura がそれぞれ書いているので、fude には書かず [uchmk/ito#46](https://github.com/uchmk/ito/issues/46) を待つ。
-  上限に届いた知らせは、今は帯と鈴（0.7.0）。
+- [x] 通知と設定の「通知」ページ: `ito-notify`（システムの通知・音・webhook）と `ito-prefs` の `notify_page`・`NotifyCfg`
+  （[uchmk/ito#46](https://github.com/uchmk/ito/issues/46)、v0.119.2 `ef71a41`）。`notify.rs`。上限に届いたとき、窓が後ろにあれば知らせる。
 - [x] 設定の画面: `ito_prefs::show`（Language・CLOCK・Theme の共通のページ + キー）。手本は minato の `settings.rs`。
 - [x] 窓の場所を戻す: 雛形は `window::Saved` で戻し `Tracker::follow` で書く。終わるときに `Tracker::close`。
-- [ ] 通知を入れる: 設定の読み違い・keymap の警告はベルに出る（0.2.0）。`ito_notices::Notice` を push し（`go` に飛び先の型）、`ito-notify` の `Toast::open` で押すと開くトーストにする。
-  上の「通知」ページと一緒に、#46 が来てから。
+- [ ] 通知を入れる: 設定の読み違い・keymap の警告はベルに出る（0.2.0）。上限の知らせはシステムの通知に出る（`NotifyCfg::tell`）。
+  残りは、押すと fude の窓が前に来るトースト（michi は `notify.rs` に `Notifier` と `Toast::open` の糸を自前で持つ）。fude には書かず ito に頼む。
 - [x] コマンドパレットの中身: 設定・キー一覧・不具合報告・倍率・終了（0.2.0）、清書・紙・縦横・コピー・新しく書く（0.4.0）、本棚・保存（0.5.0）、
   書き出し・印刷（0.8.0）、設定の「書く」「このノート」のページ（0.9.0）。
 - [x] 字体（日本語が出る字体を `egui` に足す）。手本は minato の `fonts.rs`。
@@ -51,8 +50,8 @@
 
 - [x] [uchmk/ito#43](https://github.com/uchmk/ito/issues/43) 区切りのボタン（seg） → v0.117.0。清書の道具の列（紙・向き・マス・1 行）を `ito_prefs::seg` に。
 - [x] [uchmk/ito#44](https://github.com/uchmk/ito/issues/44) 塗ったボタン（primary・danger） → v0.118.0 `ab21bf8`。清書の帯の「続きを書く」を `Tone::Primary` に。
-- [x] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → v0.116.0 `8eabb2a` に上げた（今は v0.119.1 `e4569fa`）。
-- [ ] [uchmk/ito#46](https://github.com/uchmk/ito/issues/46) 共通の `[notify]` の読み書きと送る所 → 設定の「通知」ページと、上限の知らせをシステムの通知にも。
+- [x] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → v0.116.0 `8eabb2a` に上げた（今は v0.119.2 `ef71a41`）。
+- [x] [uchmk/ito#46](https://github.com/uchmk/ito/issues/46) 共通の `[notify]` の読み書きと送る所 → v0.119.2 `ef71a41`。設定の「通知」ページと、上限の知らせをシステムの通知にも。
 
 ## 画面の確認（TESTING-CHECKS.md、2026-10-27）で見つけたもの
 

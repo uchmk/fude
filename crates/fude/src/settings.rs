@@ -6,7 +6,8 @@
 //! page is the open notebook's, written to the fude.toml in its folder: the
 //! limits, no erasing, the paper its clean copy opens on, the grid, how a
 //! line of it is filled, and the topics. fude's keys are
-//! on the Keys page, written to keymap.toml.
+//! on the Keys page, written to keymap.toml. Notifications is config.toml's
+//! `[notify]` as every uchmk app shows it (`ito_prefs::notify_page`).
 
 use std::time::Instant;
 
@@ -17,6 +18,7 @@ use ito_prefs::{keyed_row, section, sep, Drafts, KeyWords, Look, MoreWords, Page
 
 use crate::config::{self, Config, Dir, Face, Hang, OnContinue, Paper, Point, Rule, Show, Tick, TimeStart, Topic};
 use crate::keymap::Keymap;
+use crate::notify::{self, NotifyCfg};
 use crate::sound::Cue;
 use crate::App;
 
@@ -25,12 +27,13 @@ pub const THEME: usize = 1;
 pub const WRITE: usize = 2;
 pub const NOTE: usize = 3;
 pub const KEYS: usize = 4;
-pub const ADVANCED: usize = 5;
-pub const ABOUT: usize = 6;
+pub const NOTIFY: usize = 5;
+pub const ADVANCED: usize = 6;
+pub const ABOUT: usize = 7;
 
 /// The pages fude has besides General and About, which every app has.
 /// `App` is the Writing page and the This notebook page.
-const HAS: [Page; 4] = [Page::Theme, Page::App, Page::Keys, Page::Advanced];
+const HAS: [Page; 5] = [Page::Theme, Page::App, Page::Keys, Page::Notifications, Page::Advanced];
 
 /// The Writing page's keys in config.toml, which the search finds too.
 const WRITE_KEYS: [&str; 11] = [
@@ -126,11 +129,15 @@ fn index<'a>(w: &'static Words, more: &'static MoreWords, kw: &'static KeyWords,
         (NOTE, tr("settings.topic_section")),
         (NOTE, tr("settings.topic")),
         (NOTE, tr("settings.topics")),
+        (NOTIFY, "[notify]"),
+        (NOTIFY, tr("settings.notify_limit")),
+        (NOTIFY, tr("settings.notify_limit_sound")),
     ]
     .into_iter()
     .chain(WRITE_KEYS.map(|k| (WRITE, k)))
     .chain(NOTE_KEYS.map(|k| (NOTE, k)))
     .chain(ito_prefs::keys_index(kw).into_iter().map(|t| (KEYS, t)))
+    .chain(ito_prefs::notify_index(w).into_iter().map(|t| (NOTIFY, t)))
     .chain(ito_prefs::advanced_index(more).into_iter().map(|t| (ADVANCED, t)))
     .chain(ito_prefs::about_index(more, w).into_iter().map(|t| (ABOUT, t)))
     .collect()
@@ -153,6 +160,7 @@ pub fn show(ui: &mut Ui, app: &mut App) {
         .into_iter()
         .flat_map(|p| match p {
             Page::App => vec![(tr("settings.write"), tr("settings.write_lead")), (tr("settings.clean"), note_lead.as_str())],
+            Page::Notifications => vec![(more.p_notify, tr("settings.notify_lead"))],
             _ => vec![p.words(more)],
         })
         .collect();
@@ -166,6 +174,10 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     let mut bug = false;
     let mut config_asked = Vec::new();
     let topics = app.prefs.topics();
+    let notify = app.prefs.notify.clone();
+    let mut notify_edits = Vec::new();
+    let mut webhooks = None;
+    let mut test = None;
     let prefs = &mut app.prefs;
     let keys_edit = &mut prefs.keys_edit;
     let (config, drafts) = (prefs.config, &mut prefs.drafts);
@@ -209,6 +221,16 @@ pub fn show(ui: &mut Ui, app: &mut App) {
             };
             key_edits.extend(ito_prefs::keys_page(ui, l, kw, &table, keys_edit).unwrap_or_default());
         }
+        NOTIFY => {
+            let mut n = notify.page(&notify::EVENTS);
+            let ends = [ito_prefs::End { name: tr("settings.notify_limit"), color: l.c.done, sound: tr("settings.notify_limit_sound") }];
+            let defaults = NotifyCfg::new(&notify::EVENTS).page(&notify::EVENTS);
+            if let Some(what) = ito_prefs::notify_page(ui, l, w, &ends, &mut n, &defaults, drafts) {
+                test = Some((what, n.clone()));
+            }
+            webhooks = notify.webhooks_of(&notify::EVENTS, &n);
+            notify_edits = notify.edits(&notify::EVENTS, &n);
+        }
         ADVANCED => advanced.extend(ito_prefs::advanced_card(ui, l, more, state_dir.is_some())),
         ABOUT => {
             let system = ito_bugreport::os_line();
@@ -220,6 +242,9 @@ pub fn show(ui: &mut Ui, app: &mut App) {
         _ => {}
     });
     let no_folder = tr("settings.no_folder").to_owned();
+    if let Some((what, n)) = test {
+        notify::test(&n, what, tr("settings.notify_test_title"), tr("settings.notify_test_body"));
+    }
     if bug {
         app.report_bug(ui.ctx());
     }
@@ -248,6 +273,7 @@ pub fn show(ui: &mut Ui, app: &mut App) {
         app.prefs.keys_edit.capture = None;
         app.prefs.keys_edit.listening = false;
     }
+    app.prefs.notify_edit(notify_edits, webhooks, &no_folder);
     app.prefs.keymap_edit(key_edits, &no_folder);
     app.prefs.common_change(asked, &no_folder);
     let retopic = config_asked.iter().any(|(k, _)| k.starts_with("note.topic"));
@@ -604,8 +630,8 @@ mod tests {
 
     #[test]
     fn pages_follow_ito_default_order() {
-        assert_eq!([GENERAL, THEME, WRITE, NOTE, KEYS, ADVANCED, ABOUT], [0, 1, 2, 3, 4, 5, 6]);
-        let order = [Page::General, Page::Theme, Page::App, Page::Keys, Page::Advanced, Page::About];
+        assert_eq!([GENERAL, THEME, WRITE, NOTE, KEYS, NOTIFY, ADVANCED, ABOUT], [0, 1, 2, 3, 4, 5, 6, 7]);
+        let order = [Page::General, Page::Theme, Page::App, Page::Keys, Page::Notifications, Page::Advanced, Page::About];
         assert_eq!(ito_prefs::default_order(&HAS), order);
     }
 
@@ -696,6 +722,8 @@ mod tests {
             assert!(idx.iter().any(|(p, s)| *p == NOTE && *s == t.tr("settings.char_limit")), "{lang}");
             assert!(idx.iter().any(|(p, s)| *p == NOTE && *s == t.tr("settings.paper")), "{lang}");
             assert!(idx.iter().any(|(p, s)| *p == NOTE && *s == "note.paper"), "{lang}");
+            assert!(idx.iter().any(|(p, s)| *p == NOTIFY && *s == Words::of(lang).focus), "{lang}");
+            assert!(idx.iter().any(|(p, s)| *p == NOTIFY && *s == t.tr("settings.notify_limit_sound")), "{lang}");
         }
     }
 
@@ -716,6 +744,49 @@ mod tests {
             let r = c.apply(table, key, &value(k));
             assert!(r.as_ref().map_or_else(|e| !e.contains("not a setting"), |_| true), "{k}: {r:?}");
         }
+    }
+
+    /// The Notifications page draws in both languages, and a way turned on
+    /// is written to config.toml's `[notify]` and read back.
+    #[test]
+    fn the_notify_page_draws_and_writes_notify() {
+        for lang in ["en", "ja"] {
+            let mut a = App::with(crate::prefs::Prefs::empty());
+            (a.table, _) = crate::i18n::table(lang);
+            a.screen = Screen::Settings;
+            a.prefs.state.page = NOTIFY;
+            let ctx = egui::Context::default();
+            for _ in 0..2 {
+                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| show(ui, &mut a));
+                });
+                out.textures_delta.clear();
+            }
+            assert!(a.prefs.notify == NotifyCfg::new(&notify::EVENTS), "drawing changes nothing");
+        }
+        let dir = std::env::temp_dir().join(format!("fude-settings-notify-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut a = App::with(crate::prefs::Prefs::empty());
+        a.prefs.base = Some(dir.clone());
+        let mut n = a.prefs.notify.page(&notify::EVENTS);
+        n.sound[0] = true;
+        n.focus = false;
+        let edits = a.prefs.notify.edits(&notify::EVENTS, &n);
+        a.prefs.notify_edit(edits, None, "");
+        let file = config::path(&dir);
+        let mut text = String::new();
+        for _ in 0..500 {
+            text = std::fs::read_to_string(&file).unwrap_or_default();
+            if text.contains("focus_mode") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(text.contains("[notify]") && text.contains(r#"sound = ["limit"]"#) && text.contains("focus_mode = false"), "{text}");
+        let (_, n, warn) = config::read(&file).unwrap();
+        assert!(warn.is_empty() && !n.focus_mode() && n.sound == Some(vec!["limit".to_owned()]), "{warn:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The Writing and the This notebook pages draw in both languages, a

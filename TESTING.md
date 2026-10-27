@@ -34,6 +34,7 @@ writes what is left to `TESTING-CHECKS.md`.
 | 3.1 | Settings, This notebook: set the letter limit to 10, then type 12 letters | At the 10th the band says the limit is reached, a small bell rings once, and the screen stays as it is; the 11th and 12th go in |
 | 3.2 | Set a time limit of 1 minute, with the clock starting at the first letter; wait, then type | The clock does not run until the first letter, and the band tells of the limit a minute after it |
 | 3.3 | Past a limit, press `Esc`, then `Enter` | The writing goes on, and the limit is raised or lifted as the Writing page says |
+| 3.4 | Set a time limit of 1 minute, type a letter, then click another window and wait | When the minute is up, a system notification with fude's icon says the limit is reached; with fude in front, there is none |
 
 ## 4. The clean copy
 
@@ -85,10 +86,11 @@ writes what is left to `TESTING-CHECKS.md`.
 
 | # | Do | Expect |
 | --- | --- | --- |
-| 8.1 | Press `Ctrl+,` | The settings open on General, Theme, Writing, This notebook, Keys, Advanced and About, in the theme and the language the other uchmk apps use |
+| 8.1 | Press `Ctrl+,` | The settings open on General, Theme, Writing, This notebook, Keys, Notifications, Advanced and About, in the theme and the language the other uchmk apps use |
 | 8.2 | On Writing, change the letter size, the input point and what the band shows | Each takes effect at once and is written to `config.toml` |
 | 8.3 | On This notebook, change the paper and the limits | They are written to `[note]` in the notebook's `fude.toml`, and another notebook keeps its own |
 | 8.4 | Change the theme in another uchmk app | fude follows it without a restart |
+| 8.5 | On Notifications, turn on the sound and pick another one | They are written to `[notify]` in `config.toml`; "Back to the defaults" sets the sound off and the chime again |
 
 ## 9. Keys, the help and the palette
 
