@@ -150,7 +150,7 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     // While a key is being set the page takes every key, Esc included; while
     // the palette or the notices are open, the keys are theirs.
     let others = app.prefs.keys_edit.busy() || app.palette.is_some() || app.bell_open;
-    let keys = if others { ito_prefs::Keys::default() } else { ito_prefs::Keys::standard(ui, false) };
+    let keys = if others { ito_prefs::Keys::default() } else { ito_prefs::Keys::standard(ui, app.prefs.state.busy(ui)) };
     let t = &app.table;
     let tr = |k: &'static str| t.tr(k);
     // The notebook's page is led by its name.

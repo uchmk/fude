@@ -669,9 +669,8 @@ impl App {
     /// and what the app knows.
     pub fn report_bug(&self, ctx: &egui::Context) {
         let spec = ito_bugreport::Spec { app: "fude", version: env!("CARGO_PKG_VERSION"), repo: REPO, template: "bug_report.yml" };
-        let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from);
-        let context = ito_bugreport::Context { home: home.as_deref(), ..Default::default() };
-        let url = ito_bugreport::url(&spec, &[("context", ito_bugreport::context(&context))]);
+        let context = bug_context(self.prefs.base.as_deref(), ctx.pixels_per_point());
+        let url = ito_bugreport::url(&spec, &[("context", context)]);
         ctx.open_url(egui::OpenUrl::new_tab(url));
     }
 
@@ -945,6 +944,25 @@ impl eframe::App for App {
     }
 }
 
+/// The report's `context` field: the scale, and the config files fude read
+/// from the `uchmk` folder `base` (the ones there), named without the home.
+fn bug_context(base: Option<&Path>, scale: f32) -> String {
+    let home = ito_common::home_dir();
+    let files: Vec<PathBuf> = base
+        .map(|b| [ito_common::common_path(b), prefs::keymap_path(b), config::path(b)])
+        .into_iter()
+        .flatten()
+        .filter(|p| p.is_file())
+        .collect();
+    ito_bugreport::context(&ito_bugreport::Context {
+        home: home.as_deref(),
+        scale: Some(scale),
+        config: &files,
+        anchors: &["uchmk", "fude"],
+        ..Default::default()
+    })
+}
+
 /// What the command line asks for.
 #[derive(Debug, PartialEq, Eq)]
 enum Cli {
@@ -1068,6 +1086,21 @@ mod tests {
         assert!(args(&["--keys"]).unwrap_err().contains("needs a script"));
         assert!(args(&["--frob"]).unwrap_err().contains("`--frob`"));
         assert!(args(&["notes.txt"]).is_err(), "no file is opened from the command line yet");
+    }
+
+    /// The report names the config files that are there, from `uchmk` down.
+    #[test]
+    fn the_report_names_the_config_files_read() {
+        let base = std::env::temp_dir().join(format!("fude-bug-{}", std::process::id())).join("uchmk");
+        std::fs::create_dir_all(base.join("fude")).unwrap();
+        assert!(bug_context(Some(&base), 1.25).ends_with("Scale: 125%\nConfig: defaults only"));
+        std::fs::write(ito_common::common_path(&base), "").unwrap();
+        std::fs::write(config::path(&base), "").unwrap();
+        let sep = std::path::MAIN_SEPARATOR;
+        let said = bug_context(Some(&base), 1.0);
+        assert!(said.ends_with(&format!("Config: uchmk{sep}common.toml, uchmk{sep}fude{sep}config.toml")), "{said}");
+        assert!(bug_context(None, 1.0).ends_with("Config: defaults only"));
+        let _ = std::fs::remove_dir_all(base.parent().unwrap());
     }
 
     /// One frame of `a` with `events`, as eframe would run it.

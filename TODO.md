@@ -14,7 +14,8 @@
 - [x] 設定の画面: `ito_prefs::show`（Language・CLOCK・Theme の共通のページ + キー）。手本は minato の `settings.rs`。
 - [x] 窓の場所を戻す: 雛形は `window::Saved` で戻し `Tracker::follow` で書く。終わるときに `Tracker::close`。
 - [ ] 通知を入れる: 設定の読み違い・keymap の警告はベルに出る（0.2.0）。上限の知らせはシステムの通知に出る（`NotifyCfg::tell`）。
-  残りは、押すと fude の窓が前に来るトースト（michi は `notify.rs` に `Notifier` と `Toast::open` の糸を自前で持つ）。fude には書かず ito に頼む。
+  残りは、押すと fude の窓が前に来るトースト（michi は `notify.rs` に `Notifier` と `Toast::open` の糸を自前で持つ）。fude には書かず ito に頼んだ
+  （[uchmk/ito#47](https://github.com/uchmk/ito/issues/47)）。
 - [x] コマンドパレットの中身: 設定・キー一覧・不具合報告・倍率・終了（0.2.0）、清書・紙・縦横・コピー・新しく書く（0.4.0）、本棚・保存（0.5.0）、
   書き出し・印刷（0.8.0）、設定の「書く」「このノート」のページ（0.9.0）。
 - [x] 字体（日本語が出る字体を `egui` に足す）。手本は minato の `fonts.rs`。
@@ -50,16 +51,19 @@
 
 - [x] [uchmk/ito#43](https://github.com/uchmk/ito/issues/43) 区切りのボタン（seg） → v0.117.0。清書の道具の列（紙・向き・マス・1 行）を `ito_prefs::seg` に。
 - [x] [uchmk/ito#44](https://github.com/uchmk/ito/issues/44) 塗ったボタン（primary・danger） → v0.118.0 `ab21bf8`。清書の帯の「続きを書く」を `Tone::Primary` に。
-- [x] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → v0.116.0 `8eabb2a` に上げた（今は v0.119.2 `ef71a41`）。
+- [x] [uchmk/ito#45](https://github.com/uchmk/ito/issues/45) 雛形の TESTING.md の形と `make-testcheck` の `src_dirs` → v0.116.0 `8eabb2a` に上げた（今は v0.119.3 `5ae5ca7`）。
 - [x] [uchmk/ito#46](https://github.com/uchmk/ito/issues/46) 共通の `[notify]` の読み書きと送る所 → v0.119.2 `ef71a41`。設定の「通知」ページと、上限の知らせをシステムの通知にも。
 
 ## 画面の確認（TESTING-CHECKS.md、2026-10-27）で見つけたもの
 
-- [ ] 設定でドロップダウンを開いたまま Esc → ドロップダウンだけでなく設定の画面まで閉じる。
+- [x] 設定でドロップダウンを開いたまま Esc → ドロップダウンだけでなく設定の画面まで閉じる → ito v0.119.3 `5ae5ca7`
+  （`Keys::standard` が開いたポップアップに Esc を残す）で直った。fude は `state.busy(ui)` も渡す（欄にいる間の Esc）。
 - [x] 清書の帯に「続きを書く」と Esc の案内が 2 つ並ぶ。長いコピーの知らせが折り返す → 道具の列のほうを外した。
   1280 の幅でコピーの知らせが 1 行に収まる。
-- [ ] キー一覧の本棚の組で、N が `n` と出る（keymap の書き方のまま）。
-- [ ] F12 の報告の context が「Config: defaults only」だけ（`ito_bugreport` に設定のパスを渡していない）。
+- [x] キー一覧の本棚の組で、N が `n` と出る（keymap の書き方のまま） → 直さない。キー一覧は全部 keymap の書き方
+  （`<C-n>`・`<F2>`）で、そこでは `n` が N のキー。`N` と書くと Shift+N になる。
+- [x] F12 の報告の context が「Config: defaults only」だけ（`ito_bugreport` に設定のパスを渡していない） → ある設定の
+  ファイル（common.toml・keymap.toml・config.toml）と倍率を渡す。
 - [x] ベルを押しても通知の一覧が開かない → ito v0.116.1 `565a36e` で直った。
 - [x] 設定の「お題を足す」の欄が Enter のあとフォーカスを失う → fude の側で `ito_prefs::field_id` にフォーカスを戻す。
 - [x] `ito_prefs::seg` の選んだ所の字が `on_accent` でなく地の字の色のまま → ito v0.119.1 `e4569fa` で直った。
