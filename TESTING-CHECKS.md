@@ -1,6 +1,6 @@
 # Checklist
 
-58 checks in TESTING.md, 56 left for a person.
+59 checks in TESTING.md, 57 left for a person.
 
 ## 1. 起動
 
@@ -77,6 +77,7 @@
 - [x] **8.5** 「通知」で音を入れ、ほかの音を選ぶ → `config.toml` の `[notify]` に書く。「既定に戻す」で音は切れ、やわらかいチャイムに戻る — *On Notifications, turn on the sound and pick another one → They are written to `[notify]` in `config.toml`; "Back to the defaults" sets the sound off and the chime again*
 - [x] **8.6** 「一般」で「窓の場所を覚える」を切り、窓を動かして起動し直す。また入れて、「ほかの窓の手前に置く」と「忘れる」を押す → 切ると OS の決めた場所に開き、新しい場所も覚えない。「手前」はすぐ効き、「忘れる」の次の起動は OS の決めた場所。「忘れる」のほかは `common.toml` の `[window]` に書く — *On General, turn off "Remember the window's place", move the window, then restart; turn it on again, then "Always on top" and "Forget" → Off, the window opens where the OS puts it and keeps no new place; "Always on top" takes effect at once, and "Forget" opens the next start where the OS puts it. All but "Forget" go to `[window]` in `common.toml`*
 - [~] **8.7** 「一般」で「サインインで起動する」を入れ、サインアウトしてサインインし直し、また切る → 入れている間だけサインインで fude が起動する。スイッチはページを開いたときの OS の答えを出す — *On General, turn on "Start at sign-in", sign out and in, then turn it off → fude starts at sign-in only while it is on; the switch shows what the OS says when the page opens*
+- [x] **8.8** 窓を一番小さく（720x420）して設定を開き、「書く」「このノート」「一般」を見る → ページの一覧は縦にスクロールし、下の「開く: common.toml」の上で止まる（下に潜らない）。どの行も名前が読める幅で、操作の横に並ぶ — *Shrink the window to its smallest (720x420) and open the settings; go through Writing, This notebook and General → The page list scrolls and stops above "Open: common.toml" instead of running under it, and every row keeps its label on readable lines beside its control*
 
 ## 9. キー・キー一覧・パレット
 

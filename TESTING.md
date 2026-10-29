@@ -93,6 +93,7 @@ writes what is left to `TESTING-CHECKS.md`.
 | 8.5 | On Notifications, turn on the sound and pick another one | They are written to `[notify]` in `config.toml`; "Back to the defaults" sets the sound off and the chime again |
 | 8.6 | On General, turn off "Remember the window's place", move the window, then restart; turn it on again, then "Always on top" and "Forget" | Off, the window opens where the OS puts it and keeps no new place; "Always on top" takes effect at once, and "Forget" opens the next start where the OS puts it. All but "Forget" go to `[window]` in `common.toml` |
 | 8.7 | On General, turn on "Start at sign-in", sign out and in, then turn it off | fude starts at sign-in only while it is on; the switch shows what the OS says when the page opens |
+| 8.8 | Shrink the window to its smallest (720x420) and open the settings; go through Writing, This notebook and General | The page list scrolls and stops above "Open: common.toml" instead of running under it, and every row keeps its label on readable lines beside its control |
 
 ## 9. Keys, the help and the palette
 
