@@ -188,8 +188,14 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     };
     let results =
         ito_prefs::Results { head: tr("settings.results_head"), lead: tr("settings.results_lead"), none: tr("settings.results_none") };
-    let extras =
-        ito_prefs::Extras { groups: &groups, shared: &SHARED, shared_tag: tr("settings.shared_tag"), back, results: Some(results) };
+    let extras = ito_prefs::Extras {
+        groups: &groups,
+        shared: &SHARED,
+        shared_tag: tr("settings.shared_tag"),
+        back,
+        results: Some(results),
+        files: &[],
+    };
     let layers = app.keymap.layers();
     let state_dir = ito_common::state_dir("fude");
     let mut asked: Vec<CommonChange> = Vec::new();
@@ -336,7 +342,7 @@ pub fn show(ui: &mut Ui, app: &mut App) {
     if out.close {
         app.screen = app.back;
     }
-    if out.open_file {
+    if out.open_file == Some(0) {
         app.prefs.open_common(&no_folder);
     }
     // Gone to another page: the keys stop being taken for this one. A

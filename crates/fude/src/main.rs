@@ -334,6 +334,12 @@ impl App {
                         self.write_state(done, "keys: done\n");
                     }
                 }
+                Do::Failed { step, why } => {
+                    if let Some(done) = &script.done {
+                        self.write_state(done, &ito_keyscript::failed_report(&step, &why, script.left()));
+                    }
+                    std::process::exit(ito_keyscript::FAILED_EXIT);
+                }
             }
         }
         if let Some(due) = self.script.as_ref().and_then(Runner::due) {
