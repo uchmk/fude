@@ -2,7 +2,7 @@
 
 A one-line text editor for writing, where your eyes never move. The typing spot stays put and the text flows across the band. Use ←→ to go back and fix, and press Esc when you're done to see a clean copy (manuscript paper, ruled, grid, or plain; vertical or horizontal). Built with Rust and egui; Windows first, with macOS and Linux on x86_64 and ARM64. Shared parts (window, theme, language, keys, help, palette, bug reports) come from [ito](https://github.com/uchmk/ito).
 
-![Typing a passage, then Esc for the clean copy](docs/fude-demo.gif)
+![Typing a passage in the writing view](docs/fude-demo.gif)
 
 ![Writing view (dark)](docs/write.png)
 
